@@ -1,7 +1,5 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { GPUComputationRenderer } from 'three/examples/jsm/Addons.js'
 import GUI from 'lil-gui'
 import particlesVertexShader from './shaders/particles/vertex.glsl'
@@ -20,13 +18,6 @@ const canvas = document.querySelector('canvas.webgl')
 
 // Scene
 const scene = new THREE.Scene()
-
-// Loaders
-const dracoLoader = new DRACOLoader()
-dracoLoader.setDecoderPath('./draco/')
-
-const gltfLoader = new GLTFLoader()
-gltfLoader.setDRACOLoader(dracoLoader)
 
 /**
  * Sizes
@@ -81,16 +72,24 @@ renderer.setPixelRatio(sizes.pixelRatio)
 debugObject.clearColor = '#29191f'
 renderer.setClearColor(debugObject.clearColor)
 
+
 /**
- * Load model
+ * Orb
  */
-const gltf = await gltfLoader.loadAsync('./model.glb')
+
+const orbs = {}
+orbs.geometry = new THREE.SphereGeometry(
+    1,    // radius
+    64,   // width segments
+    64    // height segments)
+)
+console.log(orbs.geometry)
 
 /** 
  * Base geometry
  */
 const baseGeometry = {}
-baseGeometry.instance = gltf.scene.children[0].geometry
+baseGeometry.instance = orbs.geometry
 baseGeometry.count = baseGeometry.instance.attributes.position.count
 
 /**
@@ -136,7 +135,7 @@ gpgpu.debug = new THREE.Mesh(
         map: gpgpu.computation.getCurrentRenderTarget(gpgpu.particlesVariable).texture
     })
 )
-gpgpu.debug.visible = false
+// gpgpu.debug.visible = false
 gpgpu.debug.position.x = 3
 scene.add(gpgpu.debug)
 
@@ -168,7 +167,6 @@ for(let y = 0; y < gpgpu.size; y++){
 particles.geometry = new THREE.BufferGeometry()
 particles.geometry.setDrawRange(0, baseGeometry.count)
 particles.geometry.setAttribute('aParticlesUv', new THREE.BufferAttribute(particlesUvArray, 2))
-particles.geometry.setAttribute('aColor', baseGeometry.instance.attributes.color)
 particles.geometry.setAttribute('aSize', new THREE.BufferAttribute(sizesArray, 1))
 
 // Material
