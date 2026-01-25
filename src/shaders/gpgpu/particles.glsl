@@ -36,7 +36,7 @@ void main(){
         flowField = normalize(flowField);
         particle.xyz += flowField * uDeltaTime * strength * uFlowFieldStrength;
 
-        particle.a += uDeltaTime * 0.3;
+        particle.a += uDeltaTime * 0.1;
     }
 
 

@@ -147,7 +147,6 @@ const particles = {}
 
 // Geometry
 const particlesUvArray = new Float32Array(baseGeometry.count * 2)
-const sizesArray = new Float32Array(baseGeometry.count)
 for(let y = 0; y < gpgpu.size; y++){
     for(let x = 0; x < gpgpu.size; x++){
         const i = (y * gpgpu.size) + x
@@ -157,17 +156,13 @@ for(let y = 0; y < gpgpu.size; y++){
         const uvY = (y + 0.5) / gpgpu.size
 
         particlesUvArray[i2 + 0] = uvX
-        particlesUvArray[i2 + 1] = uvY
-
-        sizesArray[i] = Math.random()
-        
+        particlesUvArray[i2 + 1] = uvY        
     }
 }
 
 particles.geometry = new THREE.BufferGeometry()
 particles.geometry.setDrawRange(0, baseGeometry.count)
 particles.geometry.setAttribute('aParticlesUv', new THREE.BufferAttribute(particlesUvArray, 2))
-particles.geometry.setAttribute('aSize', new THREE.BufferAttribute(sizesArray, 1))
 
 // Material
 particles.material = new THREE.ShaderMaterial({
@@ -175,10 +170,14 @@ particles.material = new THREE.ShaderMaterial({
     fragmentShader: particlesFragmentShader,
     uniforms:
     {
-        uSize: new THREE.Uniform(0.07),
+        uSize: new THREE.Uniform(0.02),
         uResolution: new THREE.Uniform(new THREE.Vector2(sizes.width * sizes.pixelRatio, sizes.height * sizes.pixelRatio)),
-        uParticlesTexture: new THREE.Uniform()
-    }
+        uParticlesTexture: new THREE.Uniform(),
+        uColor: new THREE.Uniform(new THREE.Color('#ff6030'))
+    },
+    // Add these blending settings
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
 })
 
 // Points
@@ -188,6 +187,10 @@ scene.add(particles.points)
 /**
  * Tweaks
  */
+debugObject.particleColor = '#ff6030'
+gui.addColor(debugObject, 'particleColor').onChange(() => { 
+    particles.material.uniforms.uColor.value.set(debugObject.particleColor) 
+}).name('Particle Color')
 gui.addColor(debugObject, 'clearColor').onChange(() => { renderer.setClearColor(debugObject.clearColor) })
 gui.add(particles.material.uniforms.uSize, 'value').min(0).max(1).step(0.001).name('uSize')
 gui.add(gpgpu.particlesVariable.material.uniforms.uFlowFieldInfluence, 'value')
