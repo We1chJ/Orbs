@@ -12,7 +12,7 @@ import gpgpuParticlesShader from './shaders/gpgpu/particles.glsl'
 // Debug
 const gui = new GUI({ width: 340 })
 const debugObject = {}
-debugObject.particleColor = '#006602'
+debugObject.particleColor = '#00ff6a'
 
 // Canvas
 const canvas = document.querySelector('canvas.webgl')
@@ -73,55 +73,57 @@ renderer.setPixelRatio(sizes.pixelRatio)
 debugObject.clearColor = '#29191f'
 renderer.setClearColor(debugObject.clearColor)
 
+const particleCount = 512 * 512; 
+const textureSize = 512;          // square texture side length
 
-/**
- * Orb
- */
+// Helper: generate one random point on unit sphere surface
+function getRandomSpherePoint() {
+    const v = new THREE.Vector3(
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1
+    );
+    // Rejection sampling: retry if outside unit sphere
+    if (v.length() > 1) {
+        return getRandomSpherePoint();
+    }
+    return v.normalize(); // now length = 1 (on surface)
+}
 
-const orbs = {}
-orbs.geometry = new THREE.SphereGeometry(
-    1,    // radius
-    512,   // width segments
-    512    // height segments)
-)
-console.log(orbs.geometry.attributes.position.count)
+// Create initial positions texture data
+const baseParticlesData = new Float32Array(particleCount * 4); // RGBA --> XYZW
+const radius = 1.5; // adjust this for overall size (bigger = larger sphere)
 
-/** 
- * Base geometry
- */
-const baseGeometry = {}
-baseGeometry.instance = orbs.geometry
-baseGeometry.count = baseGeometry.instance.attributes.position.count
+for (let i = 0; i < particleCount; i++) {
+    const i4 = i * 4;
+    const point = getRandomSpherePoint();
+    
+    baseParticlesData[i4 + 0] = point.x * radius;
+    baseParticlesData[i4 + 1] = point.y * radius;
+    baseParticlesData[i4 + 2] = point.z * radius;
+    baseParticlesData[i4 + 3] = Math.random(); // optional: random age/life if you add lifecycle
+}
 
 /**
  * GPU Compute
  */
 // Setup
 const gpgpu = {}
-gpgpu.size = Math.ceil(Math.sqrt(baseGeometry.count))
+gpgpu.size = textureSize
 gpgpu.computation = new GPUComputationRenderer(gpgpu.size, gpgpu.size, renderer)
 
 // Base particles
-const baseParticlecsTexture = gpgpu.computation.createTexture()
-for(let i = 0; i < baseGeometry.count; i++) {
-    const i3 = i*3;
-    const i4 = i*4;
-
-    // Position based on geometry
-    baseParticlecsTexture.image.data[i4 + 0] = baseGeometry.instance.attributes.position.array[i3 + 0]
-    baseParticlecsTexture.image.data[i4 + 1] = baseGeometry.instance.attributes.position.array[i3 + 1]
-    baseParticlecsTexture.image.data[i4 + 2] = baseGeometry.instance.attributes.position.array[i3 + 2]
-    baseParticlecsTexture.image.data[i4 + 3] = Math.random()
-}
+const baseParticlesTexture = gpgpu.computation.createTexture()
+baseParticlesTexture.image.data = baseParticlesData;
 
 // Particles variable
-gpgpu.particlesVariable = gpgpu.computation.addVariable('uParticles', gpgpuParticlesShader, baseParticlecsTexture)
+gpgpu.particlesVariable = gpgpu.computation.addVariable('uParticles', gpgpuParticlesShader, baseParticlesTexture)
 gpgpu.computation.setVariableDependencies(gpgpu.particlesVariable, [gpgpu.particlesVariable])
 
 // Uniforms
 gpgpu.particlesVariable.material.uniforms.uTime = new THREE.Uniform(0)
 gpgpu.particlesVariable.material.uniforms.uDeltaTime = new THREE.Uniform(0)
-gpgpu.particlesVariable.material.uniforms.uBase = new THREE.Uniform(baseParticlecsTexture)
+gpgpu.particlesVariable.material.uniforms.uBase = new THREE.Uniform(baseParticlesTexture)
 
 // Init
 gpgpu.computation.init()
@@ -144,22 +146,17 @@ scene.add(gpgpu.debug)
 const particles = {}
 
 // Geometry
-const particlesUvArray = new Float32Array(baseGeometry.count * 2)
+const particlesUvArray = new Float32Array(particleCount * 2)
 for(let y = 0; y < gpgpu.size; y++){
     for(let x = 0; x < gpgpu.size; x++){
-        const i = (y * gpgpu.size) + x
-        const i2 = i * 2
-        
-        const uvX = (x + 0.5) / gpgpu.size
-        const uvY = (y + 0.5) / gpgpu.size
-
-        particlesUvArray[i2 + 0] = uvX
-        particlesUvArray[i2 + 1] = uvY        
+        const i = (y * gpgpu.size + x) * 2;
+        particlesUvArray[i + 0] = (x + 0.5) / gpgpu.size;
+        particlesUvArray[i + 1] = (y + 0.5) / gpgpu.size;     
     }
 }
 
 particles.geometry = new THREE.BufferGeometry()
-particles.geometry.setDrawRange(0, baseGeometry.count)
+particles.geometry.setDrawRange(0, particleCount)
 particles.geometry.setAttribute('aParticlesUv', new THREE.BufferAttribute(particlesUvArray, 2))
 
 // Material
@@ -167,6 +164,7 @@ particles.material = new THREE.ShaderMaterial({
     vertexShader: particlesVertexShader,
     fragmentShader: particlesFragmentShader,
     uniforms: {
+        uColor: new THREE.Uniform(new THREE.Color(debugObject.particleColor)),
         uParticlesTexture: new THREE.Uniform(),
         uTime: { value: 0 },
         uFocus: { value: 12.8 },
@@ -185,9 +183,9 @@ scene.add(particles.points)
 /**
  * Tweaks
  */
-// gui.addColor(debugObject, 'particleColor').onChange(() => { 
-//     particles.material.uniforms.uColor.value.set(debugObject.particleColor) 
-// }).name('Particle Color')
+gui.addColor(debugObject, 'particleColor').onChange(() => { 
+    particles.material.uniforms.uColor.value.set(debugObject.particleColor) 
+}).name('Particle Color')
 // gui.addColor(debugObject, 'clearColor').onChange(() => { renderer.setClearColor(debugObject.clearColor) })
 // DoF Controls
 gui.add(particles.material.uniforms.uFocus, 'value')
