@@ -81,8 +81,8 @@ renderer.setClearColor(debugObject.clearColor)
 const orbs = {}
 orbs.geometry = new THREE.SphereGeometry(
     1,    // radius
-    64,   // width segments
-    64    // height segments)
+    512,   // width segments
+    512    // height segments)
 )
 console.log(orbs.geometry.attributes.position.count)
 
@@ -166,15 +166,15 @@ particles.geometry.setAttribute('aParticlesUv', new THREE.BufferAttribute(partic
 particles.material = new THREE.ShaderMaterial({
     vertexShader: particlesVertexShader,
     fragmentShader: particlesFragmentShader,
-    uniforms:
-    {
-        uSize: new THREE.Uniform(0.02),
-        uResolution: new THREE.Uniform(new THREE.Vector2(sizes.width * sizes.pixelRatio, sizes.height * sizes.pixelRatio)),
+    uniforms: {
         uParticlesTexture: new THREE.Uniform(),
-        uColor: new THREE.Uniform(new THREE.Color(debugObject.particleColor))
+        uTime: { value: 0 },
+        uFocus: { value: 12.8 },
+        uFov: { value: 50 },
+        uBlur: { value: 1 }
     },
-    // Add these blending settings
-    blending: THREE.AdditiveBlending,
+    transparent: true,
+    blending: THREE.NormalBlending,
     depthWrite: false
 })
 
@@ -185,11 +185,29 @@ scene.add(particles.points)
 /**
  * Tweaks
  */
-gui.addColor(debugObject, 'particleColor').onChange(() => { 
-    particles.material.uniforms.uColor.value.set(debugObject.particleColor) 
-}).name('Particle Color')
-gui.addColor(debugObject, 'clearColor').onChange(() => { renderer.setClearColor(debugObject.clearColor) })
-gui.add(particles.material.uniforms.uSize, 'value').min(0).max(1).step(0.001).name('uSize')
+// gui.addColor(debugObject, 'particleColor').onChange(() => { 
+//     particles.material.uniforms.uColor.value.set(debugObject.particleColor) 
+// }).name('Particle Color')
+// gui.addColor(debugObject, 'clearColor').onChange(() => { renderer.setClearColor(debugObject.clearColor) })
+// DoF Controls
+gui.add(particles.material.uniforms.uFocus, 'value')
+   .min(0.1)
+   .max(20.0)
+   .step(0.1)
+   .name('Focus Distance')
+
+gui.add(particles.material.uniforms.uBlur, 'value')
+   .min(0)
+   .max(100)
+   .step(1)
+   .name('Blur Strength')
+
+gui.add(particles.material.uniforms.uFov, 'value')
+   .min(20)
+   .max(120)
+   .step(1)
+   .name('FOV Factor')
+
 /**
  * Animate
  */

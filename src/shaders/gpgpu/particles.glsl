@@ -1,5 +1,3 @@
-
-
 uniform float uTime;
 uniform float uDeltaTime;
 uniform sampler2D uBase;
@@ -20,9 +18,9 @@ void main() {
     else {
         vec3 pos = particle.xyz;
 
-        float scale = 1.0;
+        float scale = 0.5;
         float speed = 0.5;
-        float strength = 1.2;
+        float strength = 0.1;
 
         vec3 curlNoise = vec3(0.0);
         float amp = 1.0;
@@ -36,7 +34,7 @@ void main() {
 
         curlNoise = normalize(curlNoise) * strength;
 
-        particle.xyz += curlNoise * uDeltaTime;
+        particle.xyz += curlNoise * uDeltaTime * 2.0;
 
         particle.a += uDeltaTime * 0.15;
     }
