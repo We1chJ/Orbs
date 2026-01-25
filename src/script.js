@@ -12,6 +12,7 @@ import gpgpuParticlesShader from './shaders/gpgpu/particles.glsl'
 // Debug
 const gui = new GUI({ width: 340 })
 const debugObject = {}
+debugObject.particleColor = '#006602'
 
 // Canvas
 const canvas = document.querySelector('canvas.webgl')
@@ -83,7 +84,7 @@ orbs.geometry = new THREE.SphereGeometry(
     64,   // width segments
     64    // height segments)
 )
-console.log(orbs.geometry)
+console.log(orbs.geometry.attributes.position.count)
 
 /** 
  * Base geometry
@@ -121,9 +122,6 @@ gpgpu.computation.setVariableDependencies(gpgpu.particlesVariable, [gpgpu.partic
 gpgpu.particlesVariable.material.uniforms.uTime = new THREE.Uniform(0)
 gpgpu.particlesVariable.material.uniforms.uDeltaTime = new THREE.Uniform(0)
 gpgpu.particlesVariable.material.uniforms.uBase = new THREE.Uniform(baseParticlecsTexture)
-gpgpu.particlesVariable.material.uniforms.uFlowFieldInfluence = new THREE.Uniform(0.5)
-gpgpu.particlesVariable.material.uniforms.uFlowFieldStrength = new THREE.Uniform(2)
-gpgpu.particlesVariable.material.uniforms.uFlowFieldFrequency = new THREE.Uniform(0.5)
 
 // Init
 gpgpu.computation.init()
@@ -173,7 +171,7 @@ particles.material = new THREE.ShaderMaterial({
         uSize: new THREE.Uniform(0.02),
         uResolution: new THREE.Uniform(new THREE.Vector2(sizes.width * sizes.pixelRatio, sizes.height * sizes.pixelRatio)),
         uParticlesTexture: new THREE.Uniform(),
-        uColor: new THREE.Uniform(new THREE.Color('#ff6030'))
+        uColor: new THREE.Uniform(new THREE.Color(debugObject.particleColor))
     },
     // Add these blending settings
     blending: THREE.AdditiveBlending,
@@ -187,25 +185,11 @@ scene.add(particles.points)
 /**
  * Tweaks
  */
-debugObject.particleColor = '#ff6030'
 gui.addColor(debugObject, 'particleColor').onChange(() => { 
     particles.material.uniforms.uColor.value.set(debugObject.particleColor) 
 }).name('Particle Color')
 gui.addColor(debugObject, 'clearColor').onChange(() => { renderer.setClearColor(debugObject.clearColor) })
 gui.add(particles.material.uniforms.uSize, 'value').min(0).max(1).step(0.001).name('uSize')
-gui.add(gpgpu.particlesVariable.material.uniforms.uFlowFieldInfluence, 'value')
-    .min(0)
-    .max(1)
-    .name('uFlowFieldInfluence')
-gui.add(gpgpu.particlesVariable.material.uniforms.uFlowFieldStrength, 'value')
-    .min(0)
-    .max(10)
-    .name('uFlowFieldStrength')
-gui.add(gpgpu.particlesVariable.material.uniforms.uFlowFieldFrequency, 'value')
-    .min(0)
-    .max(1)
-    .step(0.001)
-    .name('uFlowFieldFrequency')
 /**
  * Animate
  */

@@ -1,5 +1,6 @@
 import restart from 'vite-plugin-restart'
 import glsl from 'vite-plugin-glsl'
+import lygia from 'vite-plugin-lygia'
 
 export default {
     root: 'src/',
@@ -20,6 +21,7 @@ export default {
     plugins:
     [
         restart({ restart: [ '../static/**', ] }), // Restart server on static file change
-        glsl() // Handle shader files
+        lygia(),
+        glsl()
     ]
 }

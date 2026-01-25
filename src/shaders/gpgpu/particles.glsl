@@ -1,46 +1,45 @@
+
+
 uniform float uTime;
 uniform float uDeltaTime;
 uniform sampler2D uBase;
-uniform float uFlowFieldInfluence;
-uniform float uFlowFieldStrength;
-uniform float uFlowFieldFrequency;
 
-#include ../includes/simplexNoise4d.glsl
+#include "lygia/generative/curl.glsl"
+#include "lygia/generative/snoise.glsl"
 
-void main(){
-
-    float time = uTime * 0.2;
+void main() {
     vec2 uv = gl_FragCoord.xy / resolution.xy;
+
     vec4 particle = texture(uParticles, uv);
     vec4 base = texture(uBase, uv);
 
-    // Dead
-    if(particle.a >= 1.0){
+    if (particle.a >= 1.0) {
         particle.a = mod(particle.a, 1.0);
         particle.xyz = base.xyz;
     }
-    // Alive
-    else{
+    else {
+        vec3 pos = particle.xyz;
 
-        // Strength
-        float strength = simplexNoise4d(vec4(base.xyz * 0.2, time + 1.0));
-        float influence = (uFlowFieldInfluence - 0.5) * -2.0;
-        strength = smoothstep(influence, 1.0, strength);
+        float scale = 1.0;
+        float speed = 0.5;
+        float strength = 1.2;
 
+        vec3 curlNoise = vec3(0.0);
+        float amp = 1.0;
+        float freq = scale;
 
-        vec3 flowField = vec3(
-            simplexNoise4d(vec4(particle.xyz * uFlowFieldFrequency + 0.0, time)),
-            simplexNoise4d(vec4(particle.xyz * uFlowFieldFrequency + 1.0, time)),
-            simplexNoise4d(vec4(particle.xyz * uFlowFieldFrequency + 2.0, time))
-        );
-        flowField = normalize(flowField);
-        particle.xyz += flowField * uDeltaTime * strength * uFlowFieldStrength;
+        for (int i = 0; i < 3; i++) {
+            curlNoise += curl(pos * freq + uTime * speed) * amp;
+            amp *= 0.5;
+            freq *= 2.0;
+        }
 
-        particle.a += uDeltaTime * 0.1;
+        curlNoise = normalize(curlNoise) * strength;
+
+        particle.xyz += curlNoise * uDeltaTime;
+
+        particle.a += uDeltaTime * 0.15;
     }
 
-
-
     gl_FragColor = particle;
-
 }
