@@ -92,7 +92,7 @@ function getRandomSpherePoint() {
 
 // Create initial positions texture data
 const baseParticlesData = new Float32Array(particleCount * 4); // RGBA --> XYZW
-const radius = 1.5; // adjust this for overall size (bigger = larger sphere)
+const radius = 128; // adjust this for overall size (bigger = larger sphere)
 
 for (let i = 0; i < particleCount; i++) {
     const i4 = i * 4;
