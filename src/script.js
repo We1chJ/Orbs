@@ -101,7 +101,7 @@ for (let i = 0; i < particleCount; i++) {
     baseParticlesData[i4 + 0] = point.x * radius;
     baseParticlesData[i4 + 1] = point.y * radius;
     baseParticlesData[i4 + 2] = point.z * radius;
-    baseParticlesData[i4 + 3] = Math.random(); // optional: random age/life if you add lifecycle
+    baseParticlesData[i4 + 3] = 1.0;
 }
 
 /**
@@ -124,6 +124,8 @@ gpgpu.computation.setVariableDependencies(gpgpu.particlesVariable, [gpgpu.partic
 gpgpu.particlesVariable.material.uniforms.uTime = new THREE.Uniform(0)
 gpgpu.particlesVariable.material.uniforms.uDeltaTime = new THREE.Uniform(0)
 gpgpu.particlesVariable.material.uniforms.uBase = new THREE.Uniform(baseParticlesTexture)
+gpgpu.particlesVariable.material.uniforms.uCurlFreq = new THREE.Uniform(0.25);
+gpgpu.particlesVariable.material.uniforms.uSpeed = new THREE.Uniform(0.015);
 
 // Init
 gpgpu.computation.init()
@@ -205,6 +207,12 @@ gui.add(particles.material.uniforms.uFov, 'value')
    .max(120)
    .step(1)
    .name('FOV Factor')
+
+gui.add(gpgpu.particlesVariable.material.uniforms.uCurlFreq, 'value')
+   .min(0.1).max(2.0).step(0.05).name('Curl Frequency');
+
+gui.add(gpgpu.particlesVariable.material.uniforms.uSpeed, 'value')
+   .min(0.0).max(100.0).step(0.1).name('Speed');
 
 /**
  * Animate

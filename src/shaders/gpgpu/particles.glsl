@@ -1,6 +1,6 @@
 uniform float uTime;
-uniform float uDeltaTime;
-uniform sampler2D uBase;
+uniform float uSpeed;
+uniform float uCurlFreq; 
 
 #include "lygia/generative/curl.glsl"
 #include "lygia/generative/snoise.glsl"
@@ -8,36 +8,26 @@ uniform sampler2D uBase;
 void main() {
     vec2 uv = gl_FragCoord.xy / resolution.xy;
 
-    vec4 particle = texture(uParticles, uv);
-    vec4 base = texture(uBase, uv);
+    // Get current position (exact same as example)
+    vec3 pos = texture2D(uParticles, uv).rgb;
 
-    if (particle.a >= 1.0) {
-        particle.a = mod(particle.a, 1.0);
-        particle.xyz = base.xyz;
-    }
-    else {
-        vec3 pos = particle.xyz;
+    // Exact same time scaling as the original example
+    float t = uTime * 0.015 * uSpeed;
 
-        float scale = 0.5;
-        float speed = 0.5;
-        float strength = 0.1;
+    // Base curl
+    vec3 curlPos = curl(pos * uCurlFreq + t);
 
-        vec3 curlNoise = vec3(0.0);
-        float amp = 1.0;
-        float freq = scale;
+    // Exact multi-octave layers from the example
+    curlPos += curl(curlPos * uCurlFreq * 2.0) * 0.5;
+    curlPos += curl(curlPos * uCurlFreq * 4.0) * 0.25;
+    curlPos += curl(curlPos * uCurlFreq * 8.0) * 0.125;
+    curlPos += curl(pos * uCurlFreq * 16.0) * 0.0625;
 
-        for (int i = 0; i < 3; i++) {
-            curlNoise += curl(pos * freq + uTime * speed) * amp;
-            amp *= 0.5;
-            freq *= 2.0;
-        }
+    // Exact same blending with noise as the example
+    float blend = snoise(pos + t);
+    blend = (blend + 1.0) * 0.5;  // remap to [0,1]
 
-        curlNoise = normalize(curlNoise) * strength;
+    vec3 finalPos = mix(pos, curlPos, blend);
 
-        particle.xyz += curlNoise * uDeltaTime * 2.0;
-
-        particle.a += uDeltaTime * 0.15;
-    }
-
-    gl_FragColor = particle;
+    gl_FragColor = vec4(finalPos, 1.0);
 }
