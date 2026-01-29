@@ -76,34 +76,33 @@ renderer.setClearColor(debugObject.clearColor)
 const particleCount = 512 * 512; 
 const textureSize = 512;          // square texture side length
 
-// Helper: generate one random point on unit sphere surface
+// Helper: generate one random point INSIDE unit sphere (not just surface)
 function getRandomSpherePoint() {
     const v = new THREE.Vector3(
         Math.random() * 2 - 1,
         Math.random() * 2 - 1,
         Math.random() * 2 - 1
     );
-    // Rejection sampling: retry if outside unit sphere
     if (v.length() > 1) {
         return getRandomSpherePoint();
     }
-    return v.normalize(); // now length = 1 (on surface)
+    return v.normalize();
 }
 
+
 // Create initial positions texture data
-const baseParticlesData = new Float32Array(particleCount * 4); // RGBA --> XYZW
-const radius = 128; // adjust this for overall size (bigger = larger sphere)
+const baseParticlesData = new Float32Array(particleCount * 4);
+const radius = 128; // Match original
 
 for (let i = 0; i < particleCount; i++) {
     const i4 = i * 4;
-    const point = getRandomSpherePoint();
+    const point = getRandomSpherePoint(); // Now returns normalized vector
     
     baseParticlesData[i4 + 0] = point.x * radius;
     baseParticlesData[i4 + 1] = point.y * radius;
     baseParticlesData[i4 + 2] = point.z * radius;
     baseParticlesData[i4 + 3] = 1.0;
 }
-
 /**
  * GPU Compute
  */
@@ -118,7 +117,6 @@ baseParticlesTexture.image.data = baseParticlesData;
 
 // Particles variable
 gpgpu.particlesVariable = gpgpu.computation.addVariable('uParticles', gpgpuParticlesShader, baseParticlesTexture)
-gpgpu.computation.setVariableDependencies(gpgpu.particlesVariable, [gpgpu.particlesVariable])
 
 // Uniforms
 gpgpu.particlesVariable.material.uniforms.uTime = new THREE.Uniform(0)
@@ -152,8 +150,8 @@ const particlesUvArray = new Float32Array(particleCount * 2)
 for(let y = 0; y < gpgpu.size; y++){
     for(let x = 0; x < gpgpu.size; x++){
         const i = (y * gpgpu.size + x) * 2;
-        particlesUvArray[i + 0] = (x + 0.5) / gpgpu.size;
-        particlesUvArray[i + 1] = (y + 0.5) / gpgpu.size;     
+        particlesUvArray[i + 0] = x / gpgpu.size;
+        particlesUvArray[i + 1] = y / gpgpu.size;     
     }
 }
 
@@ -204,12 +202,12 @@ gui.add(particles.material.uniforms.uBlur, 'value')
 
 gui.add(particles.material.uniforms.uFov, 'value')
    .min(20)
-   .max(120)
+   .max(500)
    .step(1)
    .name('FOV Factor')
 
 gui.add(gpgpu.particlesVariable.material.uniforms.uCurlFreq, 'value')
-   .min(0.1).max(2.0).step(0.05).name('Curl Frequency');
+   .min(0).max(0.5).step(0.01).name('Curl Frequency');
 
 gui.add(gpgpu.particlesVariable.material.uniforms.uSpeed, 'value')
    .min(0.0).max(100.0).step(0.1).name('Speed');
