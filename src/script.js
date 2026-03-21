@@ -15,6 +15,10 @@ const gui = new GUI({ width: 340 })
 const debugObject = {}
 debugObject.particleColor = '#00ff6a'
 debugObject.spinSpeed = 0.35
+debugObject.curlFreq = 0.25
+debugObject.flowSpeed = 2.0
+debugObject.attraction = 10.0
+debugObject.damping = 0.67
 
 // Canvas
 const canvas = document.querySelector('canvas.webgl')
@@ -166,12 +170,20 @@ gpgpu.computation.setVariableDependencies(gpgpu.particlesVariable, [gpgpu.partic
 gpgpu.computation.setVariableDependencies(gpgpu.velocityVariable, [gpgpu.particlesVariable, gpgpu.velocityVariable])
 
 // Uniforms
-gpgpu.particlesVariable.material.uniforms.uTime = new THREE.Uniform(0)
 gpgpu.particlesVariable.material.uniforms.uDeltaTime = new THREE.Uniform(0)
+gpgpu.particlesVariable.material.uniforms.uTime = new THREE.Uniform(0)
 gpgpu.particlesVariable.material.uniforms.uBase = new THREE.Uniform(baseParticlesTexture)
-gpgpu.particlesVariable.material.uniforms.uCurlFreq = new THREE.Uniform(0.25);
-gpgpu.particlesVariable.material.uniforms.uSpeed = new THREE.Uniform(12.0);
-gpgpu.particlesVariable.material.uniforms.uInitialize = new THREE.Uniform(true);
+gpgpu.particlesVariable.material.uniforms.uCurlFreq = new THREE.Uniform(debugObject.curlFreq)
+gpgpu.particlesVariable.material.uniforms.uSpeed = new THREE.Uniform(debugObject.flowSpeed)
+gpgpu.particlesVariable.material.uniforms.uInitialize = new THREE.Uniform(true)
+gpgpu.velocityVariable.material.uniforms.uTime = new THREE.Uniform(0)
+gpgpu.velocityVariable.material.uniforms.uDeltaTime = new THREE.Uniform(0)
+gpgpu.velocityVariable.material.uniforms.uBase = new THREE.Uniform(baseParticlesTexture)
+gpgpu.velocityVariable.material.uniforms.uCurlFreq = new THREE.Uniform(debugObject.curlFreq);
+gpgpu.velocityVariable.material.uniforms.uSpeed = new THREE.Uniform(debugObject.flowSpeed);
+gpgpu.velocityVariable.material.uniforms.uAttraction = new THREE.Uniform(debugObject.attraction);
+gpgpu.velocityVariable.material.uniforms.uDamping = new THREE.Uniform(debugObject.damping);
+gpgpu.velocityVariable.material.uniforms.uSpinSpeed = new THREE.Uniform(debugObject.spinSpeed);
 
 // Init
 gpgpu.computation.init()
@@ -254,14 +266,37 @@ gui.add(particles.material.uniforms.uFov, 'value')
    .step(1)
    .name('FOV Factor')
 
-gui.add(gpgpu.particlesVariable.material.uniforms.uCurlFreq, 'value')
-   .min(0).max(0.5).step(0.01).name('Curl Frequency');
+gui.add(debugObject, 'curlFreq')
+   .min(0).max(0.5).step(0.01).name('Curl Frequency')
+   .onChange((value) => {
+       gpgpu.particlesVariable.material.uniforms.uCurlFreq.value = value
+       gpgpu.velocityVariable.material.uniforms.uCurlFreq.value = value
+   });
 
-gui.add(gpgpu.particlesVariable.material.uniforms.uSpeed, 'value')
-   .min(0.0).max(100.0).step(0.1).name('Speed');
+gui.add(debugObject, 'flowSpeed')
+   .min(0.0).max(100.0).step(0.1).name('Speed')
+   .onChange((value) => {
+       gpgpu.particlesVariable.material.uniforms.uSpeed.value = value
+       gpgpu.velocityVariable.material.uniforms.uSpeed.value = value
+   });
+
+gui.add(debugObject, 'attraction')
+    .min(0.0).max(10.0).step(0.01).name('Attraction')
+    .onChange((value) => {
+        gpgpu.velocityVariable.material.uniforms.uAttraction.value = value
+    });
+
+gui.add(debugObject, 'damping')
+    .min(0.1).max(1.0).step(0.001).name('Damping')
+    .onChange((value) => {
+        gpgpu.velocityVariable.material.uniforms.uDamping.value = value
+    });
 
 gui.add(debugObject, 'spinSpeed')
-    .min(0.0).max(3.0).step(0.01).name('Orb Spin Speed');
+    .min(0.0).max(10.0).step(0.01).name('Orb Spin Speed')
+    .onChange((value) => {
+        gpgpu.velocityVariable.material.uniforms.uSpinSpeed.value = value
+    });
 
 /**
  * Animate
@@ -281,13 +316,16 @@ const tick = () =>
     controls.update()
 
     // GPGPU Update
-    gpgpu.particlesVariable.material.uniforms.uTime.value = elapsedTime
     gpgpu.particlesVariable.material.uniforms.uDeltaTime.value = deltaTime
+    gpgpu.particlesVariable.material.uniforms.uTime.value = elapsedTime
+    gpgpu.particlesVariable.material.uniforms.uCurlFreq.value = gpgpu.velocityVariable.material.uniforms.uCurlFreq.value
+    gpgpu.particlesVariable.material.uniforms.uSpeed.value = gpgpu.velocityVariable.material.uniforms.uSpeed.value
+    gpgpu.velocityVariable.material.uniforms.uTime.value = elapsedTime
+    gpgpu.velocityVariable.material.uniforms.uDeltaTime.value = deltaTime
+    gpgpu.velocityVariable.material.uniforms.uSpinSpeed.value = debugObject.spinSpeed
     gpgpu.computation.compute()
-    gpgpu.particlesVariable.material.uniforms.uInitialize.value = false // Only initialize on first frame
+    gpgpu.particlesVariable.material.uniforms.uInitialize.value = false
     particles.material.uniforms.uParticlesTexture.value = gpgpu.computation.getCurrentRenderTarget(gpgpu.particlesVariable).texture
-
-    // particles.points.rotation.y += deltaTime * debugObject.spinSpeed
 
     // Render normal scene
     renderer.render(scene, camera)
