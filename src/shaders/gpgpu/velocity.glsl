@@ -5,6 +5,7 @@ uniform float uDeltaTime;
 uniform float uAttraction;
 uniform float uDamping;
 uniform float uSpinSpeed;
+uniform vec3 uWindowForce;
 uniform sampler2D uBase;
 
 #include "lygia/generative/curl.glsl"
@@ -39,7 +40,7 @@ void main() {
     idealPos.xz *= rot;
 
     vec3 toTarget = idealPos - currentPos;
-    vec3 acceleration = toTarget * uAttraction * 10.0;
+    vec3 acceleration = toTarget * uAttraction - uWindowForce;
     vec3 nextVel = (currentVel + acceleration * uDeltaTime) * uDamping;
 
     gl_FragColor = vec4(nextVel, 1.0);

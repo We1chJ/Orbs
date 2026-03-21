@@ -17,8 +17,10 @@ debugObject.particleColor = '#00ff6a'
 debugObject.spinSpeed = 0.35
 debugObject.curlFreq = 0.25
 debugObject.flowSpeed = 6.0
-debugObject.attraction = 10.0
+debugObject.attraction = 100.0
 debugObject.damping = 0.8
+debugObject.motionForceScale = 40.0
+debugObject.motionLerpSeconds = 1.5
 
 // Canvas
 const canvas = document.querySelector('canvas.webgl')
@@ -43,6 +45,8 @@ const windowMotion = {
 }
 
 let movement = new THREE.Vector2(0.0, 0.0)
+const targetWindowForce = new THREE.Vector3(0.0, 0.0, 0.0)
+const smoothedWindowForce = new THREE.Vector3(0.0, 0.0, 0.0)
 
 const updateWindowMotion = () =>
 {
@@ -60,6 +64,7 @@ const updateWindowMotion = () =>
     )
     {
         console.log(movement)
+        
     }
 
     windowMotion.previousScreenX = windowMotion.currentScreenX
@@ -90,7 +95,7 @@ window.addEventListener('resize', () =>
  */
 // Base camera
 const camera = new THREE.PerspectiveCamera(35, sizes.width / sizes.height, 0.1, 100)
-camera.position.set(4.5, 4, 11)
+camera.position.set(0, 0, 6)
 scene.add(camera)
 
 // Controls
@@ -184,6 +189,7 @@ gpgpu.velocityVariable.material.uniforms.uSpeed = new THREE.Uniform(debugObject.
 gpgpu.velocityVariable.material.uniforms.uAttraction = new THREE.Uniform(debugObject.attraction);
 gpgpu.velocityVariable.material.uniforms.uDamping = new THREE.Uniform(debugObject.damping);
 gpgpu.velocityVariable.material.uniforms.uSpinSpeed = new THREE.Uniform(debugObject.spinSpeed);
+gpgpu.velocityVariable.material.uniforms.uWindowForce = new THREE.Uniform(new THREE.Vector3(0, 0, 0));
 
 // Init
 gpgpu.computation.init()
@@ -227,7 +233,7 @@ particles.material = new THREE.ShaderMaterial({
         uColor: new THREE.Uniform(new THREE.Color(debugObject.particleColor)),
         uParticlesTexture: new THREE.Uniform(),
         uTime: { value: 0 },
-        uFocus: { value: 12.8 },
+        uFocus: { value: 6.4 },
         uFov: { value: 50 },
         uBlur: { value: 1 }
     },
@@ -281,7 +287,7 @@ gui.add(debugObject, 'flowSpeed')
    });
 
 gui.add(debugObject, 'attraction')
-    .min(0.0).max(50.0).step(0.01).name('Attraction')
+    .min(0.0).max(500.0).step(0.01).name('Attraction')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uAttraction.value = value
     });
@@ -291,6 +297,12 @@ gui.add(debugObject, 'damping')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uDamping.value = value
     });
+
+gui.add(debugObject, 'motionForceScale')
+    .min(0.0).max(100.0).step(0.01).name('Window Force Scale');
+
+gui.add(debugObject, 'motionLerpSeconds')
+    .min(0.05).max(3.0).step(0.01).name('Window Force Lerp (s)');
 
 gui.add(debugObject, 'spinSpeed')
     .min(0.0).max(10.0).step(0.01).name('Orb Spin Speed')
@@ -323,6 +335,14 @@ const tick = () =>
     gpgpu.velocityVariable.material.uniforms.uTime.value = elapsedTime
     gpgpu.velocityVariable.material.uniforms.uDeltaTime.value = deltaTime
     gpgpu.velocityVariable.material.uniforms.uSpinSpeed.value = debugObject.spinSpeed
+    targetWindowForce.set(
+        movement.x * debugObject.motionForceScale,
+        -movement.y * debugObject.motionForceScale,
+        0.0
+    )
+    const alpha = Math.min(deltaTime / Math.max(debugObject.motionLerpSeconds, 0.0001), 1.0)
+    smoothedWindowForce.lerp(targetWindowForce, alpha)
+    gpgpu.velocityVariable.material.uniforms.uWindowForce.value.copy(smoothedWindowForce)
     gpgpu.computation.compute()
     gpgpu.particlesVariable.material.uniforms.uInitialize.value = false
     particles.material.uniforms.uParticlesTexture.value = gpgpu.computation.getCurrentRenderTarget(gpgpu.particlesVariable).texture
