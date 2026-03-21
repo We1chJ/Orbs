@@ -5,6 +5,7 @@ import GUI from 'lil-gui'
 import particlesVertexShader from './shaders/particles/vertex.glsl'
 import particlesFragmentShader from './shaders/particles/fragment.glsl'
 import gpgpuParticlesShader from './shaders/gpgpu/particles.glsl'
+import gpgpuVelocityShader from './shaders/gpgpu/velocity.glsl'
 
 /**
  * Base
@@ -44,22 +45,17 @@ const updateWindowMotion = () =>
     windowMotion.currentScreenX = window.screenX
     windowMotion.currentScreenY = window.screenY
 
+    movement.set(
+        windowMotion.currentScreenX - windowMotion.previousScreenX,
+        windowMotion.currentScreenY - windowMotion.previousScreenY
+    )
+
     if(
         windowMotion.currentScreenX !== windowMotion.previousScreenX ||
         windowMotion.currentScreenY !== windowMotion.previousScreenY
     )
     {
-
-        movement = new THREE.Vector2(
-            windowMotion.currentScreenX - windowMotion.previousScreenX,
-            windowMotion.currentScreenY - windowMotion.previousScreenY
-        )
-        console.log('windowMotion', {
-            previousX: windowMotion.previousScreenX,
-            previousY: windowMotion.previousScreenY,
-            currentX: windowMotion.currentScreenX,
-            currentY: windowMotion.currentScreenY
-        })
+        console.log(movement)
     }
 
     windowMotion.previousScreenX = windowMotion.currentScreenX
@@ -152,8 +148,22 @@ gpgpu.computation = new GPUComputationRenderer(gpgpu.size, gpgpu.size, renderer)
 const baseParticlesTexture = gpgpu.computation.createTexture()
 baseParticlesTexture.image.data = baseParticlesData;
 
+const baseVelocityTexture = gpgpu.computation.createTexture()
+for(let i = 0; i < particleCount; i++)
+{
+    const i4 = i * 4
+    baseVelocityTexture.image.data[i4 + 0] = 0
+    baseVelocityTexture.image.data[i4 + 1] = 0
+    baseVelocityTexture.image.data[i4 + 2] = 0
+    baseVelocityTexture.image.data[i4 + 3] = 1
+}
+
 // Particles variable
 gpgpu.particlesVariable = gpgpu.computation.addVariable('uParticles', gpgpuParticlesShader, baseParticlesTexture)
+gpgpu.velocityVariable = gpgpu.computation.addVariable('uVelocity', gpgpuVelocityShader, baseVelocityTexture)
+
+gpgpu.computation.setVariableDependencies(gpgpu.particlesVariable, [gpgpu.particlesVariable, gpgpu.velocityVariable])
+gpgpu.computation.setVariableDependencies(gpgpu.velocityVariable, [gpgpu.particlesVariable, gpgpu.velocityVariable])
 
 // Uniforms
 gpgpu.particlesVariable.material.uniforms.uTime = new THREE.Uniform(0)
@@ -161,6 +171,7 @@ gpgpu.particlesVariable.material.uniforms.uDeltaTime = new THREE.Uniform(0)
 gpgpu.particlesVariable.material.uniforms.uBase = new THREE.Uniform(baseParticlesTexture)
 gpgpu.particlesVariable.material.uniforms.uCurlFreq = new THREE.Uniform(0.25);
 gpgpu.particlesVariable.material.uniforms.uSpeed = new THREE.Uniform(12.0);
+gpgpu.particlesVariable.material.uniforms.uInitialize = new THREE.Uniform(true);
 
 // Init
 gpgpu.computation.init()
@@ -273,9 +284,10 @@ const tick = () =>
     gpgpu.particlesVariable.material.uniforms.uTime.value = elapsedTime
     gpgpu.particlesVariable.material.uniforms.uDeltaTime.value = deltaTime
     gpgpu.computation.compute()
+    gpgpu.particlesVariable.material.uniforms.uInitialize.value = false // Only initialize on first frame
     particles.material.uniforms.uParticlesTexture.value = gpgpu.computation.getCurrentRenderTarget(gpgpu.particlesVariable).texture
 
-    particles.points.rotation.y += deltaTime * debugObject.spinSpeed
+    // particles.points.rotation.y += deltaTime * debugObject.spinSpeed
 
     // Render normal scene
     renderer.render(scene, camera)
