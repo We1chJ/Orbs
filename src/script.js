@@ -16,9 +16,9 @@ const debugObject = {}
 debugObject.particleColor = '#00ff6a'
 debugObject.spinSpeed = 0.35
 debugObject.curlFreq = 0.25
-debugObject.flowSpeed = 2.0
+debugObject.flowSpeed = 6.0
 debugObject.attraction = 10.0
-debugObject.damping = 0.67
+debugObject.damping = 0.8
 
 // Canvas
 const canvas = document.querySelector('canvas.webgl')
@@ -281,7 +281,7 @@ gui.add(debugObject, 'flowSpeed')
    });
 
 gui.add(debugObject, 'attraction')
-    .min(0.0).max(10.0).step(0.01).name('Attraction')
+    .min(0.0).max(50.0).step(0.01).name('Attraction')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uAttraction.value = value
     });
