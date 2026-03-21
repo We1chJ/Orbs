@@ -29,6 +29,42 @@ const sizes = {
     pixelRatio: Math.min(window.devicePixelRatio, 2)
 }
 
+const windowMotion = {
+    previousScreenX: window.screenX,
+    previousScreenY: window.screenY,
+    currentScreenX: window.screenX,
+    currentScreenY: window.screenY
+}
+
+let movement = new THREE.Vector2(0.0, 0.0)
+
+const updateWindowMotion = () =>
+{
+    windowMotion.currentScreenX = window.screenX
+    windowMotion.currentScreenY = window.screenY
+
+    if(
+        windowMotion.currentScreenX !== windowMotion.previousScreenX ||
+        windowMotion.currentScreenY !== windowMotion.previousScreenY
+    )
+    {
+
+        movement = new THREE.Vector2(
+            windowMotion.currentScreenX - windowMotion.previousScreenX,
+            windowMotion.currentScreenY - windowMotion.previousScreenY
+        )
+        console.log('windowMotion', {
+            previousX: windowMotion.previousScreenX,
+            previousY: windowMotion.previousScreenY,
+            currentX: windowMotion.currentScreenX,
+            currentY: windowMotion.currentScreenY
+        })
+    }
+
+    windowMotion.previousScreenX = windowMotion.currentScreenX
+    windowMotion.previousScreenY = windowMotion.currentScreenY
+}
+
 window.addEventListener('resize', () =>
 {
     // Update sizes
@@ -123,7 +159,7 @@ gpgpu.particlesVariable.material.uniforms.uTime = new THREE.Uniform(0)
 gpgpu.particlesVariable.material.uniforms.uDeltaTime = new THREE.Uniform(0)
 gpgpu.particlesVariable.material.uniforms.uBase = new THREE.Uniform(baseParticlesTexture)
 gpgpu.particlesVariable.material.uniforms.uCurlFreq = new THREE.Uniform(0.25);
-gpgpu.particlesVariable.material.uniforms.uSpeed = new THREE.Uniform(0.015);
+gpgpu.particlesVariable.material.uniforms.uSpeed = new THREE.Uniform(12.0);
 
 // Init
 gpgpu.computation.init()
@@ -135,7 +171,7 @@ gpgpu.debug = new THREE.Mesh(
         map: gpgpu.computation.getCurrentRenderTarget(gpgpu.particlesVariable).texture
     })
 )
-// gpgpu.debug.visible = false
+gpgpu.debug.visible = false
 gpgpu.debug.position.x = 3
 scene.add(gpgpu.debug)
 
@@ -223,6 +259,8 @@ const tick = () =>
     const elapsedTime = clock.getElapsedTime()
     const deltaTime = elapsedTime - previousTime
     previousTime = elapsedTime
+
+    updateWindowMotion()
     
     // Update controls
     controls.update()
