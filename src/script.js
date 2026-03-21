@@ -13,6 +13,7 @@ import gpgpuParticlesShader from './shaders/gpgpu/particles.glsl'
 const gui = new GUI({ width: 340 })
 const debugObject = {}
 debugObject.particleColor = '#00ff6a'
+debugObject.spinSpeed = 0.35
 
 // Canvas
 const canvas = document.querySelector('canvas.webgl')
@@ -248,6 +249,9 @@ gui.add(gpgpu.particlesVariable.material.uniforms.uCurlFreq, 'value')
 gui.add(gpgpu.particlesVariable.material.uniforms.uSpeed, 'value')
    .min(0.0).max(100.0).step(0.1).name('Speed');
 
+gui.add(debugObject, 'spinSpeed')
+    .min(0.0).max(3.0).step(0.01).name('Orb Spin Speed');
+
 /**
  * Animate
  */
@@ -270,6 +274,8 @@ const tick = () =>
     gpgpu.particlesVariable.material.uniforms.uDeltaTime.value = deltaTime
     gpgpu.computation.compute()
     particles.material.uniforms.uParticlesTexture.value = gpgpu.computation.getCurrentRenderTarget(gpgpu.particlesVariable).texture
+
+    particles.points.rotation.y += deltaTime * debugObject.spinSpeed
 
     // Render normal scene
     renderer.render(scene, camera)
