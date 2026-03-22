@@ -19,9 +19,12 @@ debugObject.curlFreq = 0.25
 debugObject.spinSpeed = 0.35
 debugObject.attraction = 100.0
 debugObject.damping = 0.8
+debugObject.distortCurlScale = 10.0
 debugObject.centerPullScale = 1.0
 debugObject.windowCameraScale = 0.02
 debugObject.windowCameraSmoothness = 8.0
+debugObject.windowResponseMin = 0.02
+debugObject.windowResponseMax = 0.06
 
 // Canvas
 const canvas = document.querySelector('canvas.webgl')
@@ -108,7 +111,7 @@ const renderer = new THREE.WebGLRenderer({
 renderer.setSize(sizes.width, sizes.height)
 renderer.setPixelRatio(sizes.pixelRatio)
 
-debugObject.clearColor = '#29191f'
+debugObject.clearColor = '#000000'
 renderer.setClearColor(debugObject.clearColor)
 
 const particleCount = 512 * 512; 
@@ -160,7 +163,7 @@ for(let i = 0; i < particleCount; i++)
     baseVelocityTexture.image.data[i4 + 0] = 0
     baseVelocityTexture.image.data[i4 + 1] = 0
     baseVelocityTexture.image.data[i4 + 2] = 0
-    baseVelocityTexture.image.data[i4 + 3] = 0
+    baseVelocityTexture.image.data[i4 + 3] = Math.random()
 }
 
 // Particles variable
@@ -184,10 +187,13 @@ gpgpu.velocityVariable.material.uniforms.uSpeed = new THREE.Uniform(debugObject.
 gpgpu.velocityVariable.material.uniforms.uCurlFreq = new THREE.Uniform(debugObject.curlFreq)
 gpgpu.velocityVariable.material.uniforms.uAttraction = new THREE.Uniform(debugObject.attraction)
 gpgpu.velocityVariable.material.uniforms.uDamping = new THREE.Uniform(debugObject.damping)
+gpgpu.velocityVariable.material.uniforms.uDistortCurlScale = new THREE.Uniform(debugObject.distortCurlScale)
 gpgpu.velocityVariable.material.uniforms.uBase = new THREE.Uniform(baseParticlesTexture)
 gpgpu.velocityVariable.material.uniforms.uSpinSpeed = new THREE.Uniform(debugObject.spinSpeed)
 gpgpu.velocityVariable.material.uniforms.uCameraCenterOffset = new THREE.Uniform(cameraCenterOffset2D)
 gpgpu.velocityVariable.material.uniforms.uCenterPullScale = new THREE.Uniform(debugObject.centerPullScale)
+gpgpu.velocityVariable.material.uniforms.uWindowResponseMin = new THREE.Uniform(debugObject.windowResponseMin)
+gpgpu.velocityVariable.material.uniforms.uWindowResponseMax = new THREE.Uniform(debugObject.windowResponseMax)
 
 // Init
 gpgpu.computation.init()
@@ -293,7 +299,7 @@ gui.add(debugObject, 'spinSpeed')
     });
 
 gui.add(debugObject, 'attraction')
-    .min(0.0).max(500.0).step(0.01).name('Attraction')
+    .min(0.0).max(1000.0).step(0.01).name('Attraction')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uAttraction.value = value
     });
@@ -304,8 +310,14 @@ gui.add(debugObject, 'damping')
         gpgpu.velocityVariable.material.uniforms.uDamping.value = value
     });
 
+gui.add(debugObject, 'distortCurlScale')
+    .min(0.0).max(4.0).step(0.01).name('Distort Curl Scale')
+    .onChange((value) => {
+        gpgpu.velocityVariable.material.uniforms.uDistortCurlScale.value = value
+    });
+
 gui.add(debugObject, 'centerPullScale')
-    .min(0.0).max(1000.0).step(1.0).name('Center Pull Scale')
+    .min(0.0).max(100.0).step(0.1).name('Center Pull Scale')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uCenterPullScale.value = value
     });
@@ -315,6 +327,18 @@ gui.add(debugObject, 'windowCameraScale')
 
 gui.add(debugObject, 'windowCameraSmoothness')
     .min(0.0).max(30.0).step(0.1).name('Window Camera Smoothness');
+
+gui.add(debugObject, 'windowResponseMin')
+    .min(0.0).max(0.5).step(0.001).name('Window Response Min')
+    .onChange((value) => {
+        gpgpu.velocityVariable.material.uniforms.uWindowResponseMin.value = value
+    });
+
+gui.add(debugObject, 'windowResponseMax')
+    .min(0.0).max(0.5).step(0.001).name('Window Response Max')
+    .onChange((value) => {
+        gpgpu.velocityVariable.material.uniforms.uWindowResponseMax.value = value
+    });
 
 /**
  * Animate
@@ -364,8 +388,11 @@ const tick = () =>
     gpgpu.velocityVariable.material.uniforms.uSpinSpeed.value = debugObject.spinSpeed
     gpgpu.velocityVariable.material.uniforms.uAttraction.value = debugObject.attraction
     gpgpu.velocityVariable.material.uniforms.uDamping.value = debugObject.damping
+    gpgpu.velocityVariable.material.uniforms.uDistortCurlScale.value = debugObject.distortCurlScale
     gpgpu.velocityVariable.material.uniforms.uCameraCenterOffset.value.copy(cameraCenterOffset2D)
     gpgpu.velocityVariable.material.uniforms.uCenterPullScale.value = debugObject.centerPullScale
+    gpgpu.velocityVariable.material.uniforms.uWindowResponseMin.value = debugObject.windowResponseMin
+    gpgpu.velocityVariable.material.uniforms.uWindowResponseMax.value = debugObject.windowResponseMax
     gpgpu.computation.compute()
     gpgpu.particlesVariable.material.uniforms.uInitialize.value = false
     particles.material.uniforms.uParticlesTexture.value = gpgpu.computation.getCurrentRenderTarget(gpgpu.particlesVariable).texture
