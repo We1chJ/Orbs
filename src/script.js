@@ -16,11 +16,13 @@ const debugObject = {}
 debugObject.particleColor = '#00ff6a'
 debugObject.spinSpeed = 0.35
 debugObject.curlFreq = 0.25
-debugObject.flowSpeed = 6.0
-debugObject.attraction = 100.0
+debugObject.flowSpeed = 1.0
+debugObject.attraction = 300.0
 debugObject.damping = 0.8
 debugObject.motionForceScale = 40.0
-debugObject.motionLerpSeconds = 1.5
+debugObject.motionLerpSeconds = 1.0
+debugObject.windowResponseMin = 0.02
+debugObject.windowResponseMax = 0.06
 
 // Canvas
 const canvas = document.querySelector('canvas.webgl')
@@ -164,7 +166,7 @@ for(let i = 0; i < particleCount; i++)
     baseVelocityTexture.image.data[i4 + 0] = 0
     baseVelocityTexture.image.data[i4 + 1] = 0
     baseVelocityTexture.image.data[i4 + 2] = 0
-    baseVelocityTexture.image.data[i4 + 3] = 1
+    baseVelocityTexture.image.data[i4 + 3] = Math.random()
 }
 
 // Particles variable
@@ -189,6 +191,8 @@ gpgpu.velocityVariable.material.uniforms.uSpeed = new THREE.Uniform(debugObject.
 gpgpu.velocityVariable.material.uniforms.uAttraction = new THREE.Uniform(debugObject.attraction);
 gpgpu.velocityVariable.material.uniforms.uDamping = new THREE.Uniform(debugObject.damping);
 gpgpu.velocityVariable.material.uniforms.uSpinSpeed = new THREE.Uniform(debugObject.spinSpeed);
+gpgpu.velocityVariable.material.uniforms.uWindowResponseMin = new THREE.Uniform(debugObject.windowResponseMin);
+gpgpu.velocityVariable.material.uniforms.uWindowResponseMax = new THREE.Uniform(debugObject.windowResponseMax);
 gpgpu.velocityVariable.material.uniforms.uWindowForce = new THREE.Uniform(new THREE.Vector3(0, 0, 0));
 
 // Init
@@ -287,7 +291,7 @@ gui.add(debugObject, 'flowSpeed')
    });
 
 gui.add(debugObject, 'attraction')
-    .min(0.0).max(500.0).step(0.01).name('Attraction')
+    .min(0.0).max(1000.0).step(0.01).name('Attraction')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uAttraction.value = value
     });
@@ -299,10 +303,22 @@ gui.add(debugObject, 'damping')
     });
 
 gui.add(debugObject, 'motionForceScale')
-    .min(0.0).max(100.0).step(0.01).name('Window Force Scale');
+    .min(0.0).max(1000.0).step(0.01).name('Window Force Scale');
 
 gui.add(debugObject, 'motionLerpSeconds')
-    .min(0.05).max(3.0).step(0.01).name('Window Force Lerp (s)');
+    .min(0.05).max(10.0).step(0.01).name('Window Force Lerp (s)');
+
+gui.add(debugObject, 'windowResponseMin')
+    .min(0.005).max(1.0).step(0.005).name('Window Response Min (s)')
+    .onChange((value) => {
+        gpgpu.velocityVariable.material.uniforms.uWindowResponseMin.value = value
+    });
+
+gui.add(debugObject, 'windowResponseMax')
+    .min(0.01).max(2.0).step(0.005).name('Window Response Max (s)')
+    .onChange((value) => {
+        gpgpu.velocityVariable.material.uniforms.uWindowResponseMax.value = value
+    });
 
 gui.add(debugObject, 'spinSpeed')
     .min(0.0).max(10.0).step(0.01).name('Orb Spin Speed')

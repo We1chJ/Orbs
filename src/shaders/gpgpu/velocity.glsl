@@ -5,6 +5,8 @@ uniform float uDeltaTime;
 uniform float uAttraction;
 uniform float uDamping;
 uniform float uSpinSpeed;
+uniform float uWindowResponseMin;
+uniform float uWindowResponseMax;
 uniform vec3 uWindowForce;
 uniform sampler2D uBase;
 
@@ -16,7 +18,9 @@ void main() {
 
     vec3 basePos = texture2D(uBase, uv).rgb;
     vec3 currentPos = texture2D(uParticles, uv).rgb;
-    vec3 currentVel = texture2D(uVelocity, uv).rgb;
+    vec4 currentVelData = texture2D(uVelocity, uv);
+    vec3 currentVel = currentVelData.rgb;
+    float randomDelaySeed = currentVelData.a;
 
     float t = uTime * uSpeed * 0.015;
 
@@ -40,8 +44,13 @@ void main() {
     idealPos.xz *= rot;
 
     vec3 toTarget = idealPos - currentPos;
-    vec3 acceleration = toTarget * uAttraction - uWindowForce;
-    vec3 nextVel = (currentVel + acceleration * uDeltaTime) * uDamping;
+    vec3 targetVel = (currentVel + (toTarget * uAttraction - uWindowForce) * uDeltaTime) * uDamping;
 
-    gl_FragColor = vec4(nextVel, 1.0);
+    // Each particle gets its own response time from the random alpha seed.
+    float responseSeconds = mix(uWindowResponseMin, uWindowResponseMax, randomDelaySeed);
+    float responseAlpha = 1.0 - exp(-uDeltaTime / max(responseSeconds, 0.0001));
+    vec3 nextVel = mix(currentVel, targetVel, responseAlpha);
+
+    // Preserve alpha so the per-particle delay seed remains stable across frames.
+    gl_FragColor = vec4(nextVel, randomDelaySeed);
 }
