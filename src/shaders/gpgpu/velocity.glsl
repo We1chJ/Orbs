@@ -5,10 +5,10 @@ uniform float uDeltaTime;
 uniform float uAttraction;
 uniform float uDamping;
 uniform float uSpinSpeed;
-uniform vec2 uCameraCenterOffset;
-uniform float uCenterPullScale;
 uniform float uWindowResponseMin;
 uniform float uWindowResponseMax;
+uniform float uAccelNoiseScale;
+uniform vec2 uCameraCenterOffset;
 uniform sampler2D uBase;
 
 #include "lygia/generative/curl.glsl"
@@ -18,66 +18,59 @@ void main() {
     vec2 uv = gl_FragCoord.xy / resolution.xy;
 
     vec3 basePos = texture2D(uBase, uv).rgb;
-    vec4 currentPosData = texture2D(uParticles, uv);
-    vec3 currentPos = currentPosData.rgb;
+    vec3 currentPos = texture2D(uParticles, uv).rgb;
     vec4 currentVelData = texture2D(uVelocity, uv);
     vec3 currentVel = currentVelData.rgb;
     float randomDelaySeed = currentVelData.a;
 
-    // --- 1. LIQUID DEFORMATION MATH ---
-    // Window force from camera movement
-    vec3 uWindowForce = vec3(uCameraCenterOffset, 0.0) * uCenterPullScale;
-    float forceStrength = length(uWindowForce);
-    vec3 forceDir = normalize(uWindowForce + vec3(0.0001));
-    
-    // Stretch factor: 1.0 is a sphere, > 1.0 is an egg/pill shape
-    float stretch = 1.2 + forceStrength * 0.2; 
-    float squish = 1.0 / sqrt(max(stretch, 0.0001)); // Conserves volume
-
-    // Deform the base coordinates
-    vec3 deformedBase = basePos;
-    float dotF = dot(deformedBase, forceDir);
-    // Stretch along the movement axis, squish the others
-    deformedBase += forceDir * dotF * (stretch - 1.0);
-    deformedBase *= squish;
+    vec3 cameraShift = vec3(uCameraCenterOffset, 0.0);
 
     float t = uTime * uSpeed * 0.015;
-    vec3 pos = deformedBase;
-    vec3 curlPos = deformedBase;
+
+    // --- 1. IDEAL POSITION ---
+    vec3 pos = basePos;
+    vec3 curlPos = basePos;
 
     pos = curl(pos * uCurlFreq + t);
     curlPos = curl(curlPos * uCurlFreq + t);
     curlPos += curl(curlPos * uCurlFreq * 2.0) * 0.5;
     curlPos += curl(curlPos * uCurlFreq * 4.0) * 0.25;
+    curlPos += curl(curlPos * uCurlFreq * 8.0) * 0.125;
+    curlPos += curl(pos * uCurlFreq * 16.0) * 0.0625;
+
     vec3 idealPos = mix(pos, curlPos, snoise(pos + t));
 
-    // Rotate the liquid blob
     float angle = uTime * uSpinSpeed;
-    float s = sin(angle); 
+    float s = sin(angle);
     float c = cos(angle);
     mat2 rot = mat2(c, s, -s, c);
     idealPos.xz *= rot;
 
-    // Apply camera offset to pull orb back to center
-    vec3 deformedIdealPos = idealPos + uWindowForce;
+    vec3 shiftedIdealPos = idealPos + cameraShift;
 
-    vec3 toTarget = deformedIdealPos - currentPos;
-    
-    // Window Force: The "Negative Pull" (sloshing inertia)
-    // We multiply uWindowForce by a scalar to make the liquid "slosh"
-    vec3 sloshForce = -uWindowForce * 5.0; 
+    // --- 2. GRAVITY ONLY ---
+    vec3 toTarget = shiftedIdealPos - currentPos;
+    float distSq = dot(toTarget, toTarget);
+    float softenedDistSq = distSq + 100.0;
+    vec3 gravityAccel = normalize(toTarget + vec3(1e-6)) * (uAttraction / softenedDistSq);
 
-    // Total Acceleration
-    // Attract to the deformed ideal position + the window inertia
-    vec3 acceleration = (toTarget * uAttraction) + sloshForce;
+    // --- 3. SUBTLE CURL VARIATION ON ACCELERATION ---
+    // Feed current particle position into a curl field that slowly evolves with time.
+    // This nudges each particle's acceleration slightly differently based on where it is,
+    // giving organic variation without adding a separate driving force.
+    // Kept very small (0.08) so gravity remains the dominant and only meaningful force.
+    vec3 accelNoise = curl(currentPos * 0.4 + t * 0.8) * uAccelNoiseScale;
+    vec3 totalAccel = gravityAccel + accelNoise;
 
-    // Standard Euler Integration
-    vec3 targetVel = (currentVel + acceleration * uDeltaTime) * uDamping;
+    // --- 4. INTEGRATE ---
+    vec3 targetVel = (currentVel + totalAccel * uDeltaTime) * uDamping;
 
-    // Apply the per-particle delay (response timing for organic feel)
+    // --- 5. STAGGERED ACTIVATION ---
+    float activated = step(randomDelaySeed * 3.0, uTime);
+
     float responseSeconds = mix(uWindowResponseMin, uWindowResponseMax, randomDelaySeed);
     float responseAlpha = 1.0 - exp(-uDeltaTime / max(responseSeconds, 0.0001));
-    vec3 nextVel = mix(currentVel, targetVel, responseAlpha);
+    vec3 nextVel = mix(currentVel, targetVel * activated, responseAlpha);
 
     gl_FragColor = vec4(nextVel, randomDelaySeed);
 }
