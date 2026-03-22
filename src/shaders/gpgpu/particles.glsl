@@ -13,7 +13,9 @@ void main() {
 
     vec3 basePos = texture2D(uBase, uv).rgb;
     vec3 currentPos = texture2D(uParticles, uv).rgb;
-    vec3 velocity = texture2D(uVelocity, uv).rgb;
+    vec4 velocityData = texture2D(uVelocity, uv);
+    vec3 velocity = velocityData.rgb;
+    float randomDelaySeed = velocityData.a;
 
     float t = uTime * uSpeed * 0.015;
 
@@ -34,6 +36,7 @@ void main() {
         return;
     }
 
-    vec3 nextPos = currentPos + velocity * uDeltaTime;
+    float velocityVariation = mix(0.6, 5.0, randomDelaySeed);
+    vec3 nextPos = currentPos + velocity * velocityVariation * uDeltaTime;
     gl_FragColor = vec4(nextPos, 1.0);
 }
