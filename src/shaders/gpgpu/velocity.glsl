@@ -61,10 +61,8 @@ void main() {
     // Kept very small (0.08) so gravity remains the dominant and only meaningful force.
     float cameraShiftMag = length(cameraShift);
     float hasCameraShift = step(1e-5, cameraShiftMag);
-    vec3 cameraShiftDir = normalize(cameraShift + vec3(1e-6));
-    vec3 cameraPushAccel = cameraShiftDir * cameraShiftMag * 10.0;
     vec3 accelNoise = curl(currentPos * 0.4 + t * 0.1) * uAccelNoiseScale;
-    vec3 totalAccel = gravityAccel + (accelNoise + cameraPushAccel) * hasCameraShift;
+    vec3 totalAccel = gravityAccel + accelNoise * hasCameraShift;
 
     // --- 4. INTEGRATE ---
     vec3 targetVel = (currentVel + totalAccel * uDeltaTime) * uDamping;
