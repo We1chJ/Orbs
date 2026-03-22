@@ -7,13 +7,150 @@ import particlesFragmentShader from './shaders/particles/fragment.glsl'
 import gpgpuParticlesShader from './shaders/gpgpu/particles.glsl'
 import gpgpuVelocityShader from './shaders/gpgpu/velocity.glsl'
 
+const WINDOW_INDEX_KEY = 'orbs.windowIndex'
+const ACTIVE_WINDOW_INDICES_KEY = 'orbs.activeWindowIndices'
+
+const getActiveWindowIndices = () =>
+{
+    try
+    {
+        const raw = localStorage.getItem(ACTIVE_WINDOW_INDICES_KEY)
+        if(!raw)
+        {
+            return []
+        }
+
+        const parsed = JSON.parse(raw)
+        if(!Array.isArray(parsed))
+        {
+            return []
+        }
+
+        return [...new Set(parsed
+            .map((value) => Number(value))
+            .filter((value) => Number.isInteger(value) && value >= 0))]
+            .sort((a, b) => a - b)
+    }
+    catch (_error)
+    {
+        return []
+    }
+}
+
+const setActiveWindowIndices = (indices) =>
+{
+    const normalized = [...new Set(indices
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value >= 0))]
+        .sort((a, b) => a - b)
+
+    localStorage.setItem(ACTIVE_WINDOW_INDICES_KEY, JSON.stringify(normalized))
+}
+
+const findLowestAvailableIndex = (indices) =>
+{
+    let candidate = 0
+    for(const index of indices)
+    {
+        if(index === candidate)
+        {
+            candidate += 1
+            continue
+        }
+
+        if(index > candidate)
+        {
+            break
+        }
+    }
+
+    return candidate
+}
+
+const registerWindowIndex = (index) =>
+{
+    const indices = getActiveWindowIndices()
+    if(!indices.includes(index))
+    {
+        indices.push(index)
+        setActiveWindowIndices(indices)
+    }
+}
+
+const releaseWindowIndex = (index) =>
+{
+    const indices = getActiveWindowIndices().filter((value) => value !== index)
+    setActiveWindowIndices(indices)
+}
+
+const getOrCreateWindowIndex = () =>
+{
+    try
+    {
+        const existing = sessionStorage.getItem(WINDOW_INDEX_KEY)
+        if(existing !== null)
+        {
+            const parsed = Number(existing)
+            if(Number.isFinite(parsed) && parsed >= 0)
+            {
+                registerWindowIndex(parsed)
+                return parsed
+            }
+        }
+
+        const activeIndices = getActiveWindowIndices()
+        const assignedIndex = findLowestAvailableIndex(activeIndices)
+        activeIndices.push(assignedIndex)
+        setActiveWindowIndices(activeIndices)
+        sessionStorage.setItem(WINDOW_INDEX_KEY, String(assignedIndex))
+        return assignedIndex
+    }
+    catch (_error)
+    {
+        return 0
+    }
+}
+
 /**
  * Base
  */
 // Debug
 const gui = new GUI({ width: 340 })
 const debugObject = {}
-debugObject.particleColor = '#00ff6a'
+const windowIndex = getOrCreateWindowIndex()
+
+const setupWindowIndexCleanup = () =>
+{
+    let released = false
+
+    const releaseOnce = () =>
+    {
+        if(released)
+        {
+            return
+        }
+
+        released = true
+
+        try
+        {
+            releaseWindowIndex(windowIndex)
+            sessionStorage.removeItem(WINDOW_INDEX_KEY)
+        }
+        catch (_error)
+        {
+            // Ignore storage failures during unload.
+        }
+    }
+
+    window.addEventListener('pagehide', releaseOnce)
+    window.addEventListener('beforeunload', releaseOnce)
+}
+
+setupWindowIndexCleanup()
+
+const indexPalette = ['#00ff6a', '#ff2a2a', '#4ac7ff', '#ffd166']
+debugObject.particleColor = indexPalette[windowIndex % indexPalette.length]
 debugObject.speed = 0.5
 debugObject.curlFreq = 0.25
 debugObject.spinSpeed = 0.35
@@ -24,6 +161,9 @@ debugObject.windowCameraScale = 0.005
 debugObject.windowCameraSmoothness = 8.0
 debugObject.windowResponseMin = 0.02
 debugObject.windowResponseMax = 0.06
+
+console.info(`[Orbs] window index ${windowIndex}`)
+document.title = `Orbs [${windowIndex}]`
 
 // Canvas
 const canvas = document.querySelector('canvas.webgl')
