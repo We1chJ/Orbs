@@ -5,6 +5,7 @@ import GUI from 'lil-gui'
 import particlesVertexShader from './shaders/particles/vertex.glsl'
 import particlesFragmentShader from './shaders/particles/fragment.glsl'
 import gpgpuParticlesShader from './shaders/gpgpu/particles.glsl'
+import gpgpuVelocityShader from './shaders/gpgpu/velocity.glsl'
 
 /**
  * Base
@@ -146,8 +147,22 @@ gpgpu.computation = new GPUComputationRenderer(gpgpu.size, gpgpu.size, renderer)
 const baseParticlesTexture = gpgpu.computation.createTexture()
 baseParticlesTexture.image.data = baseParticlesData;
 
+const baseVelocityTexture = gpgpu.computation.createTexture()
+for(let i = 0; i < particleCount; i++)
+{
+    const i4 = i * 4
+    baseVelocityTexture.image.data[i4 + 0] = 0
+    baseVelocityTexture.image.data[i4 + 1] = 0
+    baseVelocityTexture.image.data[i4 + 2] = 0
+    baseVelocityTexture.image.data[i4 + 3] = 0
+}
+
 // Particles variable
 gpgpu.particlesVariable = gpgpu.computation.addVariable('uParticles', gpgpuParticlesShader, baseParticlesTexture)
+gpgpu.velocityVariable = gpgpu.computation.addVariable('uVelocity', gpgpuVelocityShader, baseVelocityTexture)
+
+gpgpu.computation.setVariableDependencies(gpgpu.particlesVariable, [gpgpu.particlesVariable, gpgpu.velocityVariable])
+gpgpu.computation.setVariableDependencies(gpgpu.velocityVariable, [gpgpu.particlesVariable, gpgpu.velocityVariable])
 
 // Uniforms
 gpgpu.particlesVariable.material.uniforms.uTime = new THREE.Uniform(0)
