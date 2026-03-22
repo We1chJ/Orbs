@@ -59,7 +59,7 @@ void main() {
     // This nudges each particle's acceleration slightly differently based on where it is,
     // giving organic variation without adding a separate driving force.
     // Kept very small (0.08) so gravity remains the dominant and only meaningful force.
-    vec3 accelNoise = curl(currentPos * 0.4 + t * 0.8) * uAccelNoiseScale;
+    vec3 accelNoise = curl(currentPos * 0.4 + t * 0.1) * uAccelNoiseScale;
     vec3 totalAccel = gravityAccel + accelNoise;
 
     // --- 4. INTEGRATE ---

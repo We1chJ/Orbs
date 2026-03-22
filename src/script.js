@@ -297,7 +297,7 @@ gui.add(debugObject, 'spinSpeed')
     });
 
 gui.add(debugObject, 'attraction')
-    .min(0.0).max(10000.0).step(0.01).name('Attraction')
+    .min(0.0).max(50000.0).step(0.01).name('Attraction')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uAttraction.value = value
     });
