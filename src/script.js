@@ -257,76 +257,79 @@ gui.addColor(debugObject, 'particleColor').onChange(() => {
     particles.material.uniforms.uColor.value.set(debugObject.particleColor) 
 }).name('Particle Color')
 // gui.addColor(debugObject, 'clearColor').onChange(() => { renderer.setClearColor(debugObject.clearColor) })
-// DoF Controls
-gui.add(particles.material.uniforms.uFocus, 'value')
+
+const generalSettingFolder = gui.addFolder('General Setting')
+generalSettingFolder.add(particles.material.uniforms.uFocus, 'value')
    .min(0.1)
    .max(20.0)
    .step(0.1)
    .name('Focus Distance')
 
-gui.add(particles.material.uniforms.uBlur, 'value')
+generalSettingFolder.add(particles.material.uniforms.uBlur, 'value')
    .min(0)
    .max(100)
    .step(1)
    .name('Blur Strength')
 
-gui.add(particles.material.uniforms.uFov, 'value')
+generalSettingFolder.add(particles.material.uniforms.uFov, 'value')
    .min(20)
    .max(500)
    .step(1)
    .name('FOV Factor')
 
-gui.add(debugObject, 'curlFreq')
+generalSettingFolder.add(debugObject, 'curlFreq')
     .min(0).max(0.5).step(0.01).name('Curl Frequency')
     .onChange((value) => {
           gpgpu.particlesVariable.material.uniforms.uCurlFreq.value = value
           gpgpu.velocityVariable.material.uniforms.uCurlFreq.value = value
     });
 
-gui.add(debugObject, 'speed')
+generalSettingFolder.add(debugObject, 'speed')
     .min(0.0).max(100.0).step(0.1).name('Speed')
     .onChange((value) => {
           gpgpu.particlesVariable.material.uniforms.uSpeed.value = value
           gpgpu.velocityVariable.material.uniforms.uSpeed.value = value
     });
 
-gui.add(debugObject, 'spinSpeed')
+generalSettingFolder.add(debugObject, 'spinSpeed')
     .min(0.0).max(3.0).step(0.01).name('Orb Spin Speed')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uSpinSpeed.value = value
     });
 
-gui.add(debugObject, 'attraction')
+const particlesPhysicsFolder = gui.addFolder('Particles Physics')
+particlesPhysicsFolder.add(debugObject, 'attraction')
     .min(0.0).max(50000.0).step(0.01).name('Attraction')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uAttraction.value = value
     });
 
-gui.add(debugObject, 'damping')
+particlesPhysicsFolder.add(debugObject, 'damping')
     .min(0.0).max(1.0).step(0.001).name('Damping')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uDamping.value = value
     });
 
-gui.add(debugObject, 'accelNoiseScale')
+particlesPhysicsFolder.add(debugObject, 'accelNoiseScale')
     .min(0.0).max(100.0).step(0.01).name('Accel Noise Scale')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uAccelNoiseScale.value = value
     });
 
-gui.add(debugObject, 'windowCameraScale')
+const windowMotionRelatedFolder = gui.addFolder('Window Motion Related')
+windowMotionRelatedFolder.add(debugObject, 'windowCameraScale')
     .min(0.0).max(0.05).step(0.001).name('Window Camera Scale');
 
-gui.add(debugObject, 'windowCameraSmoothness')
+windowMotionRelatedFolder.add(debugObject, 'windowCameraSmoothness')
     .min(0.0).max(30.0).step(0.1).name('Window Camera Smoothness');
 
-gui.add(debugObject, 'windowResponseMin')
+windowMotionRelatedFolder.add(debugObject, 'windowResponseMin')
     .min(0.0).max(0.5).step(0.001).name('Window Response Min')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uWindowResponseMin.value = value
     });
 
-gui.add(debugObject, 'windowResponseMax')
+windowMotionRelatedFolder.add(debugObject, 'windowResponseMax')
     .min(0.0).max(0.5).step(0.001).name('Window Response Max')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uWindowResponseMax.value = value
