@@ -89,7 +89,7 @@ window.addEventListener('resize', () =>
  */
 // Base camera
 const camera = new THREE.PerspectiveCamera(35, sizes.width / sizes.height, 0.1, 100)
-camera.position.set(0, 0, 5)
+camera.position.set(0, 0, 7)
 scene.add(camera)
 
 // Controls
@@ -227,7 +227,7 @@ particles.material = new THREE.ShaderMaterial({
         uColor: new THREE.Uniform(new THREE.Color(debugObject.particleColor)),
         uParticlesTexture: new THREE.Uniform(),
         uTime: { value: 0 },
-        uFocus: { value: 5.3 },
+        uFocus: { value: 7.3 },
         uFov: { value: 50 },
         uBlur: { value: 1 }
     },
