@@ -14,6 +14,9 @@ const gui = new GUI({ width: 340 })
 const debugObject = {}
 debugObject.particleColor = '#00ff6a'
 debugObject.spinSpeed = 0.35
+debugObject.windowCameraScale = 0.003
+debugObject.windowCameraResponse = 10.0
+debugObject.windowCameraDecay = 6.0
 
 // Canvas
 const canvas = document.querySelector('canvas.webgl')
@@ -38,29 +41,20 @@ const windowMotion = {
 }
 
 let movement = new THREE.Vector2(0.0, 0.0)
+const smoothedMovement = new THREE.Vector2(0.0, 0.0)
+const cameraPanRight = new THREE.Vector3()
+const cameraPanUp = new THREE.Vector3()
+const cameraPanOffset = new THREE.Vector3()
 
 const updateWindowMotion = () =>
 {
     windowMotion.currentScreenX = window.screenX
     windowMotion.currentScreenY = window.screenY
 
-    if(
-        windowMotion.currentScreenX !== windowMotion.previousScreenX ||
-        windowMotion.currentScreenY !== windowMotion.previousScreenY
+    movement.set(
+        windowMotion.currentScreenX - windowMotion.previousScreenX,
+        windowMotion.currentScreenY - windowMotion.previousScreenY
     )
-    {
-
-        movement = new THREE.Vector2(
-            windowMotion.currentScreenX - windowMotion.previousScreenX,
-            windowMotion.currentScreenY - windowMotion.previousScreenY
-        )
-        console.log('windowMotion', {
-            previousX: windowMotion.previousScreenX,
-            previousY: windowMotion.previousScreenY,
-            currentX: windowMotion.currentScreenX,
-            currentY: windowMotion.currentScreenY
-        })
-    }
 
     windowMotion.previousScreenX = windowMotion.currentScreenX
     windowMotion.previousScreenY = windowMotion.currentScreenY
@@ -90,7 +84,7 @@ window.addEventListener('resize', () =>
  */
 // Base camera
 const camera = new THREE.PerspectiveCamera(35, sizes.width / sizes.height, 0.1, 100)
-camera.position.set(4.5, 4, 11)
+camera.position.set(0, 0, 5)
 scene.add(camera)
 
 // Controls
@@ -204,7 +198,7 @@ particles.material = new THREE.ShaderMaterial({
         uColor: new THREE.Uniform(new THREE.Color(debugObject.particleColor)),
         uParticlesTexture: new THREE.Uniform(),
         uTime: { value: 0 },
-        uFocus: { value: 12.8 },
+        uFocus: { value: 5.3 },
         uFov: { value: 50 },
         uBlur: { value: 1 }
     },
@@ -215,6 +209,8 @@ particles.material = new THREE.ShaderMaterial({
 
 // Points
 particles.points = new THREE.Points(particles.geometry, particles.material)
+// GPU-simulated positions are in shader space, so disable object-level culling.
+particles.points.frustumCulled = false
 scene.add(particles.points)
 
 /**
@@ -252,6 +248,15 @@ gui.add(gpgpu.particlesVariable.material.uniforms.uSpeed, 'value')
 gui.add(debugObject, 'spinSpeed')
     .min(0.0).max(3.0).step(0.01).name('Orb Spin Speed');
 
+gui.add(debugObject, 'windowCameraScale')
+    .min(0.0).max(0.05).step(0.001).name('Window Camera Scale');
+
+gui.add(debugObject, 'windowCameraResponse')
+    .min(1.0).max(30.0).step(0.1).name('Window Camera Response');
+
+gui.add(debugObject, 'windowCameraDecay')
+    .min(0.0).max(20.0).step(0.1).name('Window Camera Decay');
+
 /**
  * Animate
  */
@@ -265,6 +270,26 @@ const tick = () =>
     previousTime = elapsedTime
 
     updateWindowMotion()
+
+    const responseAlpha = 1.0 - Math.exp(-debugObject.windowCameraResponse * deltaTime)
+    smoothedMovement.lerp(movement, responseAlpha)
+
+    if(movement.x === 0.0 && movement.y === 0.0)
+    {
+        smoothedMovement.multiplyScalar(Math.exp(-debugObject.windowCameraDecay * deltaTime))
+    }
+
+    if(smoothedMovement.x !== 0.0 || smoothedMovement.y !== 0.0)
+    {
+        cameraPanRight.set(1, 0, 0).applyQuaternion(camera.quaternion)
+        cameraPanUp.set(0, 1, 0).applyQuaternion(camera.quaternion)
+
+        cameraPanOffset.copy(cameraPanRight).multiplyScalar(smoothedMovement.x * debugObject.windowCameraScale)
+        cameraPanOffset.addScaledVector(cameraPanUp, -smoothedMovement.y * debugObject.windowCameraScale)
+
+        camera.position.add(cameraPanOffset)
+        controls.target.add(cameraPanOffset)
+    }
     
     // Update controls
     controls.update()
