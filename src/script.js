@@ -19,9 +19,9 @@ debugObject.curlFreq = 0.25
 debugObject.spinSpeed = 0.35
 debugObject.attraction = 100.0
 debugObject.damping = 0.8
-debugObject.windowCameraScale = 0.003
-debugObject.windowCameraResponse = 10.0
-debugObject.windowCameraDecay = 6.0
+debugObject.centerPullScale = 1.0
+debugObject.windowCameraScale = 0.02
+debugObject.windowCameraSmoothness = 8.0
 
 // Canvas
 const canvas = document.querySelector('canvas.webgl')
@@ -39,8 +39,8 @@ const sizes = {
 }
 
 const windowMotion = {
-    previousScreenX: window.screenX,
-    previousScreenY: window.screenY,
+    initialScreenX: window.screenX,
+    initialScreenY: window.screenY,
     currentScreenX: window.screenX,
     currentScreenY: window.screenY
 }
@@ -49,7 +49,11 @@ let movement = new THREE.Vector2(0.0, 0.0)
 const smoothedMovement = new THREE.Vector2(0.0, 0.0)
 const cameraPanRight = new THREE.Vector3()
 const cameraPanUp = new THREE.Vector3()
-const cameraPanOffset = new THREE.Vector3()
+const desiredCameraPanOffset = new THREE.Vector3()
+const appliedCameraPanOffset = new THREE.Vector3()
+const cameraPanDeltaOffset = new THREE.Vector3()
+const initialCameraCenter = new THREE.Vector3()
+const cameraCenterOffset2D = new THREE.Vector2(0.0, 0.0)
 
 const updateWindowMotion = () =>
 {
@@ -57,12 +61,9 @@ const updateWindowMotion = () =>
     windowMotion.currentScreenY = window.screenY
 
     movement.set(
-        windowMotion.currentScreenX - windowMotion.previousScreenX,
-        windowMotion.currentScreenY - windowMotion.previousScreenY
+        windowMotion.currentScreenX - windowMotion.initialScreenX,
+        windowMotion.currentScreenY - windowMotion.initialScreenY
     )
-
-    windowMotion.previousScreenX = windowMotion.currentScreenX
-    windowMotion.previousScreenY = windowMotion.currentScreenY
 }
 
 window.addEventListener('resize', () =>
@@ -95,6 +96,7 @@ scene.add(camera)
 // Controls
 const controls = new OrbitControls(camera, canvas)
 controls.enableDamping = true
+initialCameraCenter.copy(controls.target)
 
 /**
  * Renderer
@@ -184,6 +186,8 @@ gpgpu.velocityVariable.material.uniforms.uAttraction = new THREE.Uniform(debugOb
 gpgpu.velocityVariable.material.uniforms.uDamping = new THREE.Uniform(debugObject.damping)
 gpgpu.velocityVariable.material.uniforms.uBase = new THREE.Uniform(baseParticlesTexture)
 gpgpu.velocityVariable.material.uniforms.uSpinSpeed = new THREE.Uniform(debugObject.spinSpeed)
+gpgpu.velocityVariable.material.uniforms.uCameraCenterOffset = new THREE.Uniform(cameraCenterOffset2D)
+gpgpu.velocityVariable.material.uniforms.uCenterPullScale = new THREE.Uniform(debugObject.centerPullScale)
 
 // Init
 gpgpu.computation.init()
@@ -300,14 +304,17 @@ gui.add(debugObject, 'damping')
         gpgpu.velocityVariable.material.uniforms.uDamping.value = value
     });
 
+gui.add(debugObject, 'centerPullScale')
+    .min(0.0).max(1000.0).step(1.0).name('Center Pull Scale')
+    .onChange((value) => {
+        gpgpu.velocityVariable.material.uniforms.uCenterPullScale.value = value
+    });
+
 gui.add(debugObject, 'windowCameraScale')
     .min(0.0).max(0.05).step(0.001).name('Window Camera Scale');
 
-gui.add(debugObject, 'windowCameraResponse')
-    .min(1.0).max(30.0).step(0.1).name('Window Camera Response');
-
-gui.add(debugObject, 'windowCameraDecay')
-    .min(0.0).max(20.0).step(0.1).name('Window Camera Decay');
+gui.add(debugObject, 'windowCameraSmoothness')
+    .min(0.0).max(30.0).step(0.1).name('Window Camera Smoothness');
 
 /**
  * Animate
@@ -323,28 +330,27 @@ const tick = () =>
 
     updateWindowMotion()
 
-    const responseAlpha = 1.0 - Math.exp(-debugObject.windowCameraResponse * deltaTime)
-    smoothedMovement.lerp(movement, responseAlpha)
+    const cameraSmoothAlpha = 1.0 - Math.exp(-debugObject.windowCameraSmoothness * deltaTime)
+    smoothedMovement.lerp(movement, cameraSmoothAlpha)
 
-    if(movement.x === 0.0 && movement.y === 0.0)
-    {
-        smoothedMovement.multiplyScalar(Math.exp(-debugObject.windowCameraDecay * deltaTime))
-    }
+    cameraPanRight.set(1, 0, 0).applyQuaternion(camera.quaternion)
+    cameraPanUp.set(0, 1, 0).applyQuaternion(camera.quaternion)
 
-    if(smoothedMovement.x !== 0.0 || smoothedMovement.y !== 0.0)
-    {
-        cameraPanRight.set(1, 0, 0).applyQuaternion(camera.quaternion)
-        cameraPanUp.set(0, 1, 0).applyQuaternion(camera.quaternion)
+    desiredCameraPanOffset.copy(cameraPanRight).multiplyScalar(smoothedMovement.x * debugObject.windowCameraScale)
+    desiredCameraPanOffset.addScaledVector(cameraPanUp, -smoothedMovement.y * debugObject.windowCameraScale)
 
-        cameraPanOffset.copy(cameraPanRight).multiplyScalar(smoothedMovement.x * debugObject.windowCameraScale)
-        cameraPanOffset.addScaledVector(cameraPanUp, -smoothedMovement.y * debugObject.windowCameraScale)
-
-        camera.position.add(cameraPanOffset)
-        controls.target.add(cameraPanOffset)
-    }
+    cameraPanDeltaOffset.copy(desiredCameraPanOffset).sub(appliedCameraPanOffset)
+    camera.position.add(cameraPanDeltaOffset)
+    controls.target.add(cameraPanDeltaOffset)
+    appliedCameraPanOffset.copy(desiredCameraPanOffset)
     
     // Update controls
     controls.update()
+
+    cameraCenterOffset2D.set(
+        controls.target.x - initialCameraCenter.x,
+        controls.target.y - initialCameraCenter.y
+    )
 
     // GPGPU Update
     gpgpu.particlesVariable.material.uniforms.uTime.value = elapsedTime
@@ -358,6 +364,8 @@ const tick = () =>
     gpgpu.velocityVariable.material.uniforms.uSpinSpeed.value = debugObject.spinSpeed
     gpgpu.velocityVariable.material.uniforms.uAttraction.value = debugObject.attraction
     gpgpu.velocityVariable.material.uniforms.uDamping.value = debugObject.damping
+    gpgpu.velocityVariable.material.uniforms.uCameraCenterOffset.value.copy(cameraCenterOffset2D)
+    gpgpu.velocityVariable.material.uniforms.uCenterPullScale.value = debugObject.centerPullScale
     gpgpu.computation.compute()
     gpgpu.particlesVariable.material.uniforms.uInitialize.value = false
     particles.material.uniforms.uParticlesTexture.value = gpgpu.computation.getCurrentRenderTarget(gpgpu.particlesVariable).texture

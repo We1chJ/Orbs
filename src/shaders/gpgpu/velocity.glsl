@@ -5,6 +5,8 @@ uniform float uDeltaTime;
 uniform float uAttraction;
 uniform float uDamping;
 uniform float uSpinSpeed;
+uniform vec2 uCameraCenterOffset;
+uniform float uCenterPullScale;
 uniform sampler2D uBase;
 
 #include "lygia/generative/curl.glsl"
@@ -36,6 +38,9 @@ void main() {
     mat2 rot = mat2(c, s, -s, c);
     // Rotate on the XZ plane (spinning around the Y axis)
     idealPos.xz *= rot;
+
+    vec3 cameraShift = vec3(uCameraCenterOffset, 0.0) * uCenterPullScale;
+    idealPos += cameraShift;
 
 
     vec3 toTarget = idealPos - currentPos;
