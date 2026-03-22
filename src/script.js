@@ -116,6 +116,7 @@ const getOrCreateWindowIndex = () =>
  */
 // Debug
 const gui = new GUI({ width: 340 })
+gui.hide()
 const debugObject = {}
 const windowIndex = getOrCreateWindowIndex()
 
@@ -180,11 +181,33 @@ const sizes = {
     pixelRatio: Math.min(window.devicePixelRatio, 2)
 }
 
+const getCurrentWindowScreenCenter = () =>
+{
+    const horizontalChrome = Math.max(window.outerWidth - window.innerWidth, 0)
+    const verticalChrome = Math.max(window.outerHeight - window.innerHeight, 0)
+
+    // Approximate viewport offset inside browser window (includes top search/tab bar space).
+    const viewportOffsetX = horizontalChrome * 0.5
+    const viewportOffsetY = verticalChrome
+
+    return {
+        x: window.screenX + viewportOffsetX + window.innerWidth * 0.5,
+        y: window.screenY + viewportOffsetY + window.innerHeight * 0.5
+    }
+}
+
+const getCurrentMonitorCenter = () => ({
+    x: screen.width * 0.5,
+    y: screen.height * 0.5
+})
+
+const initialScreenCenter = getCurrentWindowScreenCenter()
+
 const windowMotion = {
-    initialScreenX: window.screenX,
-    initialScreenY: window.screenY,
-    currentScreenX: window.screenX,
-    currentScreenY: window.screenY
+    initialScreenX: initialScreenCenter.x,
+    initialScreenY: initialScreenCenter.y,
+    currentScreenX: initialScreenCenter.x,
+    currentScreenY: initialScreenCenter.y
 }
 
 let movement = new THREE.Vector2(0.0, 0.0)
@@ -199,8 +222,23 @@ const cameraCenterOffset2D = new THREE.Vector2(0.0, 0.0)
 
 const updateWindowMotion = () =>
 {
-    windowMotion.currentScreenX = window.screenX
-    windowMotion.currentScreenY = window.screenY
+    const previousX = windowMotion.currentScreenX
+    const previousY = windowMotion.currentScreenY
+    const currentCenter = getCurrentWindowScreenCenter()
+    const monitorCenter = getCurrentMonitorCenter()
+    windowMotion.currentScreenX = currentCenter.x
+    windowMotion.currentScreenY = currentCenter.y
+
+    const relativeCenterX = windowMotion.currentScreenX - monitorCenter.x
+    const relativeCenterY = windowMotion.currentScreenY - monitorCenter.y
+    console.log('[Orbs] browser center relative to monitor center', relativeCenterX, relativeCenterY)
+
+    const movedX = windowMotion.currentScreenX - previousX
+    const movedY = windowMotion.currentScreenY - previousY
+    if(Math.abs(movedX) > 0.001 || Math.abs(movedY) > 0.001)
+    {
+        console.log('[Orbs] window moved', windowMotion.currentScreenX, windowMotion.currentScreenY)
+    }
 
     movement.set(
         windowMotion.currentScreenX - windowMotion.initialScreenX,
@@ -235,10 +273,13 @@ const camera = new THREE.PerspectiveCamera(35, sizes.width / sizes.height, 0.1, 
 camera.position.set(0, 0, 7)
 scene.add(camera)
 
+const universeCenter = new THREE.Vector3(0, 0, 0)
+
 // Controls
 const controls = new OrbitControls(camera, canvas)
 controls.enableDamping = true
-initialCameraCenter.copy(controls.target)
+controls.target.copy(universeCenter)
+initialCameraCenter.copy(universeCenter)
 
 /**
  * Renderer
