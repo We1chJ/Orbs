@@ -7,6 +7,7 @@ uniform float uDamping;
 uniform float uSpinSpeed;
 uniform float uWindowResponseMin;
 uniform float uWindowResponseMax;
+uniform float uDistortCurlScale;
 uniform vec3 uWindowForce;
 uniform sampler2D uBase;
 
@@ -44,7 +45,17 @@ void main() {
     idealPos.xz *= rot;
 
     vec3 toTarget = idealPos - currentPos;
-    vec3 targetVel = (currentVel + (toTarget * uAttraction - uWindowForce) * uDeltaTime) * uDamping;
+    float distSq = dot(toTarget, toTarget);
+    float softenedDistSq = distSq + 25.0;
+    vec3 gravityAccel = normalize(toTarget + vec3(1e-6)) * (uAttraction / softenedDistSq);
+
+    // Drive disturbance from window-force strength through a curl field at particle position.
+    float windowStrength = length(uWindowForce);
+    vec3 curlInput = currentPos * 0.02 + vec3(windowStrength * 0.08, t * 0.31, windowStrength * 0.11 + t * 0.17);
+    vec3 curlDisturbance = curl(curlInput * uDistortCurlScale);
+    vec3 forceFromWindow = curlDisturbance * windowStrength;
+
+    vec3 targetVel = (currentVel + (gravityAccel + forceFromWindow) * uDeltaTime) * uDamping;
 
     // Each particle gets its own response time from the random alpha seed.
     float responseSeconds = mix(uWindowResponseMin, uWindowResponseMax, randomDelaySeed);

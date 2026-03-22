@@ -17,12 +17,14 @@ debugObject.particleColor = '#00ff6a'
 debugObject.spinSpeed = 0.35
 debugObject.curlFreq = 0.25
 debugObject.flowSpeed = 1.0
-debugObject.attraction = 300.0
+debugObject.attraction = 500.0
 debugObject.damping = 0.8
 debugObject.motionForceScale = 40.0
-debugObject.motionLerpSeconds = 1.0
+debugObject.motionLerpSeconds = 0.5
+debugObject.windowMotionTolerance = 5
 debugObject.windowResponseMin = 0.02
 debugObject.windowResponseMax = 0.06
+debugObject.distortCurlScale = 10.0
 
 // Canvas
 const canvas = document.querySelector('canvas.webgl')
@@ -55,14 +57,22 @@ const updateWindowMotion = () =>
     windowMotion.currentScreenX = window.screenX
     windowMotion.currentScreenY = window.screenY
 
-    movement.set(
-        windowMotion.currentScreenX - windowMotion.previousScreenX,
-        windowMotion.currentScreenY - windowMotion.previousScreenY
-    )
+    const dx = windowMotion.currentScreenX - windowMotion.previousScreenX
+    const dy = windowMotion.currentScreenY - windowMotion.previousScreenY
+    const toleranceSq = debugObject.windowMotionTolerance * debugObject.windowMotionTolerance
+
+    if ((dx * dx + dy * dy) >= toleranceSq)
+    {
+        movement.set(dx, dy)
+    }
+    else
+    {
+        movement.set(0.0, 0.0)
+    }
 
     if(
-        windowMotion.currentScreenX !== windowMotion.previousScreenX ||
-        windowMotion.currentScreenY !== windowMotion.previousScreenY
+        movement.x !== 0.0 ||
+        movement.y !== 0.0
     )
     {
         console.log(movement)
@@ -193,6 +203,7 @@ gpgpu.velocityVariable.material.uniforms.uDamping = new THREE.Uniform(debugObjec
 gpgpu.velocityVariable.material.uniforms.uSpinSpeed = new THREE.Uniform(debugObject.spinSpeed);
 gpgpu.velocityVariable.material.uniforms.uWindowResponseMin = new THREE.Uniform(debugObject.windowResponseMin);
 gpgpu.velocityVariable.material.uniforms.uWindowResponseMax = new THREE.Uniform(debugObject.windowResponseMax);
+gpgpu.velocityVariable.material.uniforms.uDistortCurlScale = new THREE.Uniform(debugObject.distortCurlScale);
 gpgpu.velocityVariable.material.uniforms.uWindowForce = new THREE.Uniform(new THREE.Vector3(0, 0, 0));
 
 // Init
@@ -305,6 +316,9 @@ gui.add(debugObject, 'damping')
 gui.add(debugObject, 'motionForceScale')
     .min(0.0).max(1000.0).step(0.01).name('Window Force Scale');
 
+gui.add(debugObject, 'windowMotionTolerance')
+    .min(0.0).max(20.0).step(0.1).name('Window Motion Tolerance');
+
 gui.add(debugObject, 'motionLerpSeconds')
     .min(0.05).max(10.0).step(0.01).name('Window Force Lerp (s)');
 
@@ -318,6 +332,12 @@ gui.add(debugObject, 'windowResponseMax')
     .min(0.01).max(2.0).step(0.005).name('Window Response Max (s)')
     .onChange((value) => {
         gpgpu.velocityVariable.material.uniforms.uWindowResponseMax.value = value
+    });
+
+gui.add(debugObject, 'distortCurlScale')
+    .min(0.1).max(100.0).step(0.1).name('Distort Curl Scale')
+    .onChange((value) => {
+        gpgpu.velocityVariable.material.uniforms.uDistortCurlScale.value = value
     });
 
 gui.add(debugObject, 'spinSpeed')
