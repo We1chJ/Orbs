@@ -8,6 +8,7 @@ uniform float uSpinSpeed;
 uniform float uWindowResponseMin;
 uniform float uWindowResponseMax;
 uniform float uAccelNoiseScale;
+uniform vec2 uCameraCenterOffset;
 uniform sampler2D uBase;
 
 #include "lygia/generative/curl.glsl"
