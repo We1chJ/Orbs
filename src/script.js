@@ -286,6 +286,13 @@ function createOrb(orbIndex) {
     }
     const cameraCenterOffsetRef = allOrbWorldOffsets.get(orbIndex)
 
+    // Per-orb personality — deterministic jitter seeded from orbIndex so every
+    // window seeing orb N agrees on the same variation.
+    const spinVariance = (((orbIndex * 7 + 3) % 9)  / 9  - 0.5) * 0.30   // ±0.15
+    const curlVariance = (((orbIndex * 13 + 5) % 11) / 11 - 0.5) * 0.12  // ±0.06
+    const orbSpinSpeed = Math.max(0.05, debugObject.spinSpeed + spinVariance)
+    const orbCurlFreq  = Math.max(0.05, debugObject.curlFreq  + curlVariance)
+
     // ── GPGPU ──────────────────────────────────────────────────────────────
     const computation = new GPUComputationRenderer(TEXTURE_SIZE, TEXTURE_SIZE, renderer)
     const basePosTex  = buildBaseParticlesTexture(computation)
@@ -300,19 +307,19 @@ function createOrb(orbIndex) {
     particlesVar.material.uniforms.uTime       = new THREE.Uniform(0)
     particlesVar.material.uniforms.uDeltaTime  = new THREE.Uniform(0)
     particlesVar.material.uniforms.uBase       = new THREE.Uniform(basePosTex)
-    particlesVar.material.uniforms.uCurlFreq   = new THREE.Uniform(debugObject.curlFreq)
+    particlesVar.material.uniforms.uCurlFreq   = new THREE.Uniform(orbCurlFreq)
     particlesVar.material.uniforms.uSpeed      = new THREE.Uniform(debugObject.speed)
     particlesVar.material.uniforms.uInitialize = new THREE.Uniform(true)
 
     velocityVar.material.uniforms.uTime               = new THREE.Uniform(0)
     velocityVar.material.uniforms.uDeltaTime          = new THREE.Uniform(0)
     velocityVar.material.uniforms.uSpeed              = new THREE.Uniform(debugObject.speed)
-    velocityVar.material.uniforms.uCurlFreq           = new THREE.Uniform(debugObject.curlFreq)
+    velocityVar.material.uniforms.uCurlFreq           = new THREE.Uniform(orbCurlFreq)
     velocityVar.material.uniforms.uAttraction         = new THREE.Uniform(debugObject.attraction)
     velocityVar.material.uniforms.uDamping            = new THREE.Uniform(debugObject.damping)
     velocityVar.material.uniforms.uAccelNoiseScale    = new THREE.Uniform(debugObject.accelNoiseScale)
     velocityVar.material.uniforms.uBase               = new THREE.Uniform(basePosTex)
-    velocityVar.material.uniforms.uSpinSpeed          = new THREE.Uniform(debugObject.spinSpeed)
+    velocityVar.material.uniforms.uSpinSpeed          = new THREE.Uniform(orbSpinSpeed)
     velocityVar.material.uniforms.uCameraCenterOffset = new THREE.Uniform(cameraCenterOffsetRef)
     velocityVar.material.uniforms.uWindowResponseMin  = new THREE.Uniform(debugObject.windowResponseMin)
     velocityVar.material.uniforms.uWindowResponseMax  = new THREE.Uniform(debugObject.windowResponseMax)
@@ -350,7 +357,7 @@ function createOrb(orbIndex) {
 
     console.info(`[Orbs] created orb ${orbIndex} (${color})`)
 
-    return { orbIndex, computation, particlesVar, velocityVar, geometry, material, points, initialized: false }
+    return { orbIndex, computation, particlesVar, velocityVar, geometry, material, points, initialized: false, orbSpinSpeed, orbCurlFreq }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -392,13 +399,26 @@ generalSettingFolder.add(ownOrb.material.uniforms.uBlur,  'value').min(0).max(10
 generalSettingFolder.add(ownOrb.material.uniforms.uFov,   'value').min(20).max(500).step(1).name('FOV Factor')
 
 generalSettingFolder.add(debugObject, 'curlFreq').min(0).max(0.5).step(0.01).name('Curl Frequency')
-    .onChange(v => { for (const o of orbInstances.values()) { o.particlesVar.material.uniforms.uCurlFreq.value = v; o.velocityVar.material.uniforms.uCurlFreq.value = v } })
+    .onChange(v => {
+        for (const o of orbInstances.values()) {
+            const curlVariance = (((o.orbIndex * 13 + 5) % 11) / 11 - 0.5) * 0.12
+            o.orbCurlFreq = Math.max(0.05, v + curlVariance)
+            o.particlesVar.material.uniforms.uCurlFreq.value = o.orbCurlFreq
+            o.velocityVar.material.uniforms.uCurlFreq.value  = o.orbCurlFreq
+        }
+    })
 
 generalSettingFolder.add(debugObject, 'speed').min(0).max(100).step(0.1).name('Speed')
     .onChange(v => { for (const o of orbInstances.values()) { o.particlesVar.material.uniforms.uSpeed.value = v; o.velocityVar.material.uniforms.uSpeed.value = v } })
 
 generalSettingFolder.add(debugObject, 'spinSpeed').min(0).max(3).step(0.01).name('Orb Spin Speed')
-    .onChange(v => { for (const o of orbInstances.values()) { o.velocityVar.material.uniforms.uSpinSpeed.value = v } })
+    .onChange(v => {
+        for (const o of orbInstances.values()) {
+            const spinVariance = (((o.orbIndex * 7 + 3) % 9) / 9 - 0.5) * 0.30
+            o.orbSpinSpeed = Math.max(0.05, v + spinVariance)
+            o.velocityVar.material.uniforms.uSpinSpeed.value = o.orbSpinSpeed
+        }
+    })
 
 const particlesPhysicsFolder = gui.addFolder('Particles Physics')
 particlesPhysicsFolder.add(debugObject, 'attraction').min(0).max(50000).step(0.01).name('Attraction')
@@ -426,7 +446,7 @@ let knownActiveIndices = new Set([windowIndex])
 // and OS window-move event jitter without changing the alignment math.
 // CAMERA_SMOOTH_K controls responsiveness: higher = faster / tighter tracking.
 // 12 gives a crisp but smooth feel; lower values (e.g. 6) are more floaty.
-const CAMERA_SMOOTH_K   = 20
+const CAMERA_SMOOTH_K   = 12
 const smoothedCameraPos = new THREE.Vector2()   // initialised on first tick
 let   cameraSmootherSeeded = false
 
@@ -501,13 +521,13 @@ const tick = () => {
         pv.material.uniforms.uTime.value      = elapsedTime
         pv.material.uniforms.uDeltaTime.value = deltaTime
         pv.material.uniforms.uSpeed.value     = debugObject.speed
-        pv.material.uniforms.uCurlFreq.value  = debugObject.curlFreq
+        pv.material.uniforms.uCurlFreq.value  = orb.orbCurlFreq
 
         vv.material.uniforms.uTime.value              = elapsedTime
         vv.material.uniforms.uDeltaTime.value         = deltaTime
         vv.material.uniforms.uSpeed.value             = debugObject.speed
-        vv.material.uniforms.uCurlFreq.value          = debugObject.curlFreq
-        vv.material.uniforms.uSpinSpeed.value         = debugObject.spinSpeed
+        vv.material.uniforms.uCurlFreq.value          = orb.orbCurlFreq
+        vv.material.uniforms.uSpinSpeed.value         = orb.orbSpinSpeed
         vv.material.uniforms.uAttraction.value        = debugObject.attraction
         vv.material.uniforms.uDamping.value           = debugObject.damping
         vv.material.uniforms.uAccelNoiseScale.value   = debugObject.accelNoiseScale
