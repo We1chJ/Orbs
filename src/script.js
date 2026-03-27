@@ -62,6 +62,7 @@ const getOrCreateWindowIndex = () => {
 // Palette
 // ─────────────────────────────────────────────────────────────────────────────
 const indexPalette = ['#00ff6a', '#ff2a2a', '#4ac7ff', '#ffd166', '#ff9ef5', '#ffe566', '#66fffa', '#ff8c42']
+const NESTED_ORB_SCALE = 0.40
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Init
@@ -144,6 +145,9 @@ window.addEventListener('resize', () => {
     for (const orb of orbInstances.values()) {
         orb.material.uniforms.uResolution.value.set(sizes.width * sizes.pixelRatio, sizes.height * sizes.pixelRatio)
     }
+    for (const nested of nestedOrbInstances.values()) {
+        nested.material.uniforms.uResolution.value.set(sizes.width * sizes.pixelRatio, sizes.height * sizes.pixelRatio)
+    }
     camera.aspect = sizes.width / sizes.height
     camera.updateProjectionMatrix()
     renderer.setSize(sizes.width, sizes.height)
@@ -222,6 +226,7 @@ const getViewportWorldOffset = () => {
 // GPGPU / particle helpers
 // ─────────────────────────────────────────────────────────────────────────────
 const PARTICLE_COUNT = 512 * 512
+const NESTED_PARTICLE_COUNT = 128 * 128
 const TEXTURE_SIZE   = 512
 
 function getRandomSpherePoint() {
@@ -337,6 +342,8 @@ function createOrb(orbIndex) {
         uniforms: {
             uColor:            new THREE.Uniform(new THREE.Color(color)),
             uParticlesTexture: new THREE.Uniform(),
+            uNestedCenter:     new THREE.Uniform(cameraCenterOffsetRef),
+            uNestedScale:      new THREE.Uniform(1.0),
             uResolution:       new THREE.Uniform(new THREE.Vector2(
                 sizes.width * sizes.pixelRatio,
                 sizes.height * sizes.pixelRatio
@@ -360,14 +367,67 @@ function createOrb(orbIndex) {
     return { orbIndex, computation, particlesVar, velocityVar, geometry, material, points, initialized: false, orbSpinSpeed, orbCurlFreq }
 }
 
+function getCounterpartIndex(orbIndex, activeIndices) {
+    for (const idx of activeIndices) {
+        if (idx !== orbIndex) return idx
+    }
+    return null
+}
+
+function createNestedOrb(parentOrbIndex, activeIndices) {
+    const parentOffsetRef = allOrbWorldOffsets.get(parentOrbIndex) || new THREE.Vector2(0, 0)
+    const counterpartIndex = getCounterpartIndex(parentOrbIndex, activeIndices)
+    const nestedColorIndex = counterpartIndex ?? parentOrbIndex
+
+    const geometry = new THREE.BufferGeometry()
+    geometry.setDrawRange(0, NESTED_PARTICLE_COUNT)
+    geometry.setAttribute('aParticlesUv', buildParticlesUvAttribute())
+
+    const material = new THREE.ShaderMaterial({
+        vertexShader:   particlesVertexShader,
+        fragmentShader: particlesFragmentShader,
+        uniforms: {
+            uColor:            new THREE.Uniform(new THREE.Color(indexPalette[nestedColorIndex % indexPalette.length])),
+            uParticlesTexture: new THREE.Uniform(),
+            uNestedCenter:     new THREE.Uniform(parentOffsetRef),
+            uNestedScale:      new THREE.Uniform(NESTED_ORB_SCALE),
+            uResolution:       new THREE.Uniform(new THREE.Vector2(
+                sizes.width * sizes.pixelRatio,
+                sizes.height * sizes.pixelRatio
+            )),
+            uTime:  { value: 0 },
+            uFocus: { value: 7.3 },
+            uFov:   { value: 50 },
+            uBlur:  { value: 1 },
+        },
+        transparent: true,
+        blending:    THREE.NormalBlending,
+        depthWrite:  false,
+    })
+
+    const points = new THREE.Points(geometry, material)
+    points.frustumCulled = false
+    scene.add(points)
+
+    return { parentOrbIndex, counterpartIndex, geometry, material, points }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Dynamic orb registry
 // ─────────────────────────────────────────────────────────────────────────────
 const orbInstances = new Map()   // orbIndex → orb
+const nestedOrbInstances = new Map() // parentOrbIndex → nested orb
 
 function ensureOrb(idx) {
     if (!orbInstances.has(idx)) {
         orbInstances.set(idx, createOrb(idx))
+    }
+}
+
+function ensureNestedOrb(parentOrbIndex, activeIndices) {
+    if (getCounterpartIndex(parentOrbIndex, activeIndices) === null) return
+    if (!nestedOrbInstances.has(parentOrbIndex)) {
+        nestedOrbInstances.set(parentOrbIndex, createNestedOrb(parentOrbIndex, activeIndices))
     }
 }
 
@@ -380,6 +440,15 @@ function destroyOrb(idx) {
     orbInstances.delete(idx)
     allOrbWorldOffsets.delete(idx)
     console.info(`[Orbs] destroyed orb ${idx}`)
+}
+
+function destroyNestedOrb(parentOrbIndex) {
+    const nested = nestedOrbInstances.get(parentOrbIndex)
+    if (!nested) return
+    scene.remove(nested.points)
+    nested.geometry.dispose()
+    nested.material.dispose()
+    nestedOrbInstances.delete(parentOrbIndex)
 }
 
 // Bootstrap own orb immediately
@@ -494,6 +563,7 @@ const tick = () => {
     for (const idx of activeSet) {
         if (!knownActiveIndices.has(idx)) {
             ensureOrb(idx)
+            ensureNestedOrb(idx, activeIndices)
             knownActiveIndices.add(idx)
         }
     }
@@ -502,7 +572,16 @@ const tick = () => {
     for (const idx of knownActiveIndices) {
         if (idx !== windowIndex && !activeSet.has(idx)) {
             destroyOrb(idx)
+            destroyNestedOrb(idx)
             knownActiveIndices.delete(idx)
+        }
+    }
+
+    for (const idx of knownActiveIndices) {
+        if (getCounterpartIndex(idx, activeIndices) === null) {
+            destroyNestedOrb(idx)
+        } else {
+            ensureNestedOrb(idx, activeIndices)
         }
     }
 
@@ -545,6 +624,23 @@ const tick = () => {
         orb.material.uniforms.uParticlesTexture.value =
             orb.computation.getCurrentRenderTarget(orb.particlesVar).texture
         orb.material.uniforms.uTime.value = elapsedTime
+    }
+
+    // ── 6b. Update nested-orb meshes (same simulation as parent orb) ───────
+    for (const [parentIdx, nested] of nestedOrbInstances) {
+        const parentOrb = orbInstances.get(parentIdx)
+        if (!parentOrb) continue
+
+        const counterpartIndex = getCounterpartIndex(parentIdx, activeIndices)
+        if (nested.counterpartIndex !== counterpartIndex) {
+            nested.counterpartIndex = counterpartIndex
+            const colorIndex = counterpartIndex ?? parentIdx
+            nested.material.uniforms.uColor.value.set(indexPalette[colorIndex % indexPalette.length])
+        }
+
+        nested.material.uniforms.uParticlesTexture.value =
+            parentOrb.computation.getCurrentRenderTarget(parentOrb.particlesVar).texture
+        nested.material.uniforms.uTime.value = elapsedTime
     }
 
     // ── 7. Render ─────────────────────────────────────────────────────────────
