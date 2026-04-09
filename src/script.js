@@ -6,6 +6,10 @@ import particlesVertexShader from './shaders/particles/vertex.glsl'
 import particlesFragmentShader from './shaders/particles/fragment.glsl'
 import gpgpuParticlesShader from './shaders/gpgpu/particles.glsl'
 import gpgpuVelocityShader from './shaders/gpgpu/velocity.glsl'
+import gpgpuStreamParticlesShader from './shaders/gpgpu/streamParticles.glsl'
+import gpgpuStreamVelocityShader from './shaders/gpgpu/streamVelocity.glsl'
+import streamParticlesVertexShader from './shaders/stream/vertex.glsl'
+import streamParticlesFragmentShader from './shaders/stream/fragment.glsl'
 import { publishOrbState, readRemoteOrbStates, cleanupOrbState } from './cross-tab-sync.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -148,6 +152,9 @@ window.addEventListener('resize', () => {
     for (const nested of nestedOrbInstances.values()) {
         nested.material.uniforms.uResolution.value.set(sizes.width * sizes.pixelRatio, sizes.height * sizes.pixelRatio)
     }
+    for (const stream of streamInstances.values()) {
+        stream.material.uniforms.uResolution.value.set(sizes.width * sizes.pixelRatio, sizes.height * sizes.pixelRatio)
+    }
     camera.aspect = sizes.width / sizes.height
     camera.updateProjectionMatrix()
     renderer.setSize(sizes.width, sizes.height)
@@ -228,19 +235,25 @@ const getViewportWorldOffset = () => {
 const PARTICLE_COUNT = 256 * 256
 const NESTED_PARTICLE_COUNT = 96 * 96
 const TEXTURE_SIZE   = 256
+const STREAM_TEXTURE_SIZE = 200
+const STREAM_PARTICLE_COUNT = STREAM_TEXTURE_SIZE * STREAM_TEXTURE_SIZE
+const STREAM_SPEED_MIN = 0.42
+const STREAM_SPEED_MAX = 0.82
+const STREAM_NOISE_AMPLITUDE = 0.20
+const STREAM_NOISE_FREQUENCY = 0.46
 
 function getRandomSpherePoint() {
     const v = new THREE.Vector3(Math.random()*2-1, Math.random()*2-1, Math.random()*2-1)
     return v.length() > 1 ? getRandomSpherePoint() : v.normalize()
 }
 
-function buildParticlesUvAttribute() {
-    const arr = new Float32Array(PARTICLE_COUNT * 2)
-    for (let y = 0; y < TEXTURE_SIZE; y++) {
-        for (let x = 0; x < TEXTURE_SIZE; x++) {
-            const i = (y * TEXTURE_SIZE + x) * 2
-            arr[i]   = x / TEXTURE_SIZE
-            arr[i+1] = y / TEXTURE_SIZE
+function buildParticlesUvAttribute(textureSize = TEXTURE_SIZE, particleCount = PARTICLE_COUNT) {
+    const arr = new Float32Array(particleCount * 2)
+    for (let y = 0; y < textureSize; y++) {
+        for (let x = 0; x < textureSize; x++) {
+            const i = (y * textureSize + x) * 2
+            arr[i]   = x / textureSize
+            arr[i+1] = y / textureSize
         }
     }
     return new THREE.BufferAttribute(arr, 2)
@@ -274,22 +287,60 @@ function buildBaseVelocityTexture(computation) {
     return tex
 }
 
+function buildBaseStreamParticlesTexture(computation) {
+    const tex = computation.createTexture()
+    const data = tex.image.data
+    for (let i = 0; i < STREAM_PARTICLE_COUNT; i++) {
+        const i4 = i * 4
+        data[i4]   = 0.0
+        data[i4+1] = 0.0
+        data[i4+2] = 0.0
+        data[i4+3] = Math.random()
+    }
+    return tex
+}
+
+function buildBaseStreamVelocityTexture(computation) {
+    const tex = computation.createTexture()
+    const data = tex.image.data
+
+    for (let i = 0; i < STREAM_PARTICLE_COUNT; i++) {
+        const i4 = i * 4
+        const sx = Math.floor(Math.random() * TEXTURE_SIZE)
+        const sy = Math.floor(Math.random() * TEXTURE_SIZE)
+        const tx = Math.floor(Math.random() * TEXTURE_SIZE)
+        const ty = Math.floor(Math.random() * TEXTURE_SIZE)
+
+        // Store sampled particle UV pairs:
+        //   rg = source(big orb) sample
+        //   ba = target(big orb -> nested small orb) sample
+        data[i4]   = (sx + 0.5) / TEXTURE_SIZE
+        data[i4+1] = (sy + 0.5) / TEXTURE_SIZE
+        data[i4+2] = (tx + 0.5) / TEXTURE_SIZE
+        data[i4+3] = (ty + 0.5) / TEXTURE_SIZE
+    }
+    return tex
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Per-orb attractor positions (world units, Vector2)
 // Stored by orbIndex; passed by reference into each orb's velocity shader.
 // ─────────────────────────────────────────────────────────────────────────────
 const allOrbWorldOffsets = new Map()   // orbIndex → THREE.Vector2
 
+const getOrCreateOrbWorldOffsetRef = (orbIndex) => {
+    if (!allOrbWorldOffsets.has(orbIndex)) {
+        allOrbWorldOffsets.set(orbIndex, new THREE.Vector2(0, 0))
+    }
+    return allOrbWorldOffsets.get(orbIndex)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Orb factory
 // ─────────────────────────────────────────────────────────────────────────────
 function createOrb(orbIndex) {
     const color = indexPalette[orbIndex % indexPalette.length]
-
-    if (!allOrbWorldOffsets.has(orbIndex)) {
-        allOrbWorldOffsets.set(orbIndex, new THREE.Vector2(0, 0))
-    }
-    const cameraCenterOffsetRef = allOrbWorldOffsets.get(orbIndex)
+    const cameraCenterOffsetRef = getOrCreateOrbWorldOffsetRef(orbIndex)
 
     // Per-orb personality — deterministic jitter seeded from orbIndex so every
     // window seeing orb N agrees on the same variation.
@@ -377,7 +428,7 @@ function getCounterpartIndex(orbIndex, activeIndices) {
 }
 
 function createNestedOrb(parentOrbIndex, activeIndices) {
-    const parentOffsetRef = allOrbWorldOffsets.get(parentOrbIndex) || new THREE.Vector2(0, 0)
+    const parentOffsetRef = getOrCreateOrbWorldOffsetRef(parentOrbIndex)
     const counterpartIndex = getCounterpartIndex(parentOrbIndex, activeIndices)
     const nestedColorIndex = counterpartIndex ?? parentOrbIndex
 
@@ -416,11 +467,81 @@ function createNestedOrb(parentOrbIndex, activeIndices) {
     return { parentOrbIndex, counterpartIndex, geometry, material, points }
 }
 
+function createStream(sourceOrbIndex, targetOrbIndex) {
+    const targetOffsetRef = getOrCreateOrbWorldOffsetRef(targetOrbIndex)
+
+    const computation = new GPUComputationRenderer(STREAM_TEXTURE_SIZE, STREAM_TEXTURE_SIZE, renderer)
+    const basePosTex = buildBaseStreamParticlesTexture(computation)
+    const baseVelTex = buildBaseStreamVelocityTexture(computation)
+
+    const particlesVar = computation.addVariable('uStreamParticles', gpgpuStreamParticlesShader, basePosTex)
+    const velocityVar = computation.addVariable('uStreamVelocity', gpgpuStreamVelocityShader, baseVelTex)
+
+    computation.setVariableDependencies(particlesVar, [particlesVar, velocityVar])
+    computation.setVariableDependencies(velocityVar, [particlesVar, velocityVar])
+
+    particlesVar.material.uniforms.uTime = new THREE.Uniform(0)
+    particlesVar.material.uniforms.uDeltaTime = new THREE.Uniform(0)
+    particlesVar.material.uniforms.uSourceParticlesTexture = new THREE.Uniform(basePosTex)
+    particlesVar.material.uniforms.uTargetParticlesTexture = new THREE.Uniform(basePosTex)
+    particlesVar.material.uniforms.uTargetNestedCenter = new THREE.Uniform(targetOffsetRef)
+    particlesVar.material.uniforms.uTargetNestedScale = new THREE.Uniform(NESTED_ORB_SCALE)
+    particlesVar.material.uniforms.uSpeedMin = new THREE.Uniform(STREAM_SPEED_MIN)
+    particlesVar.material.uniforms.uSpeedMax = new THREE.Uniform(STREAM_SPEED_MAX)
+    particlesVar.material.uniforms.uNoiseAmplitude = new THREE.Uniform(STREAM_NOISE_AMPLITUDE)
+    particlesVar.material.uniforms.uNoiseFrequency = new THREE.Uniform(STREAM_NOISE_FREQUENCY)
+    particlesVar.material.uniforms.uInitialize = new THREE.Uniform(true)
+
+    computation.init()
+
+    const geometry = new THREE.BufferGeometry()
+    geometry.setDrawRange(0, STREAM_PARTICLE_COUNT)
+    geometry.setAttribute('aParticlesUv', buildParticlesUvAttribute(STREAM_TEXTURE_SIZE, STREAM_PARTICLE_COUNT))
+
+    const material = new THREE.ShaderMaterial({
+        vertexShader: streamParticlesVertexShader,
+        fragmentShader: streamParticlesFragmentShader,
+        uniforms: {
+            uColor: new THREE.Uniform(new THREE.Color(indexPalette[sourceOrbIndex % indexPalette.length])),
+            uOpacity: new THREE.Uniform(0.72),
+            uPointSize: new THREE.Uniform(12.0),
+            uParticlesTexture: new THREE.Uniform(),
+            uResolution: new THREE.Uniform(new THREE.Vector2(
+                sizes.width * sizes.pixelRatio,
+                sizes.height * sizes.pixelRatio
+            )),
+        },
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+    })
+
+    const points = new THREE.Points(geometry, material)
+    points.frustumCulled = false
+    scene.add(points)
+
+    return {
+        sourceOrbIndex,
+        targetOrbIndex,
+        key: `${sourceOrbIndex}->${targetOrbIndex}`,
+        computation,
+        particlesVar,
+        velocityVar,
+        geometry,
+        material,
+        points,
+        initialized: false,
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Dynamic orb registry
 // ─────────────────────────────────────────────────────────────────────────────
 const orbInstances = new Map()   // orbIndex → orb
 const nestedOrbInstances = new Map() // parentOrbIndex → nested orb
+const streamInstances = new Map() // `${source}->${target}` → stream
+
+const getStreamKey = (sourceOrbIndex, targetOrbIndex) => `${sourceOrbIndex}->${targetOrbIndex}`
 
 function ensureOrb(idx) {
     if (!orbInstances.has(idx)) {
@@ -435,6 +556,13 @@ function ensureNestedOrb(parentOrbIndex, activeIndices) {
     }
 }
 
+function ensureStream(sourceOrbIndex, targetOrbIndex) {
+    const key = getStreamKey(sourceOrbIndex, targetOrbIndex)
+    if (!streamInstances.has(key)) {
+        streamInstances.set(key, createStream(sourceOrbIndex, targetOrbIndex))
+    }
+}
+
 function destroyOrb(idx) {
     const orb = orbInstances.get(idx)
     if (!orb) return
@@ -442,6 +570,7 @@ function destroyOrb(idx) {
     orb.geometry.dispose()
     orb.material.dispose()
     orbInstances.delete(idx)
+    destroyStreamsForOrb(idx)
     allOrbWorldOffsets.delete(idx)
     console.info(`[Orbs] destroyed orb ${idx}`)
 }
@@ -453,6 +582,23 @@ function destroyNestedOrb(parentOrbIndex) {
     nested.geometry.dispose()
     nested.material.dispose()
     nestedOrbInstances.delete(parentOrbIndex)
+}
+
+function destroyStreamByKey(key) {
+    const stream = streamInstances.get(key)
+    if (!stream) return
+    scene.remove(stream.points)
+    stream.geometry.dispose()
+    stream.material.dispose()
+    streamInstances.delete(key)
+}
+
+function destroyStreamsForOrb(orbIndex) {
+    for (const [key, stream] of streamInstances) {
+        if (stream.sourceOrbIndex === orbIndex || stream.targetOrbIndex === orbIndex) {
+            destroyStreamByKey(key)
+        }
+    }
 }
 
 // Bootstrap own orb immediately
@@ -550,10 +696,7 @@ const tick = () => {
     controls.update()
 
     // ── 3. Update own orb's attractor to match the smoothed camera center ────
-    if (!allOrbWorldOffsets.has(windowIndex)) {
-        allOrbWorldOffsets.set(windowIndex, new THREE.Vector2())
-    }
-    allOrbWorldOffsets.get(windowIndex).set(smoothedCameraPos.x, smoothedCameraPos.y)
+    getOrCreateOrbWorldOffsetRef(windowIndex).set(smoothedCameraPos.x, smoothedCameraPos.y)
 
     // ── 4. Publish own orb's world position for other tabs ───────────────────
     publishOrbState(windowIndex, smoothedCameraPos.x, smoothedCameraPos.y)
@@ -586,6 +729,23 @@ const tick = () => {
             destroyNestedOrb(idx)
         } else {
             ensureNestedOrb(idx, activeIndices)
+        }
+    }
+
+    // Maintain stream effects only when an orb has a counterpart.
+    // For two tabs this creates the desired cross-links:
+    // orb1 big -> orb2 small, and orb2 big -> orb1 small.
+    const desiredStreamKeys = new Set()
+    for (const sourceIdx of knownActiveIndices) {
+        const targetIdx = getCounterpartIndex(sourceIdx, activeIndices)
+        if (targetIdx === null) continue
+        const key = getStreamKey(sourceIdx, targetIdx)
+        desiredStreamKeys.add(key)
+        ensureStream(sourceIdx, targetIdx)
+    }
+    for (const [key] of streamInstances) {
+        if (!desiredStreamKeys.has(key)) {
+            destroyStreamByKey(key)
         }
     }
 
@@ -645,6 +805,32 @@ const tick = () => {
         nested.material.uniforms.uParticlesTexture.value =
             parentOrb.computation.getCurrentRenderTarget(parentOrb.particlesVar).texture
         nested.material.uniforms.uTime.value = elapsedTime
+    }
+
+    // ── 6c. Step stream particles (surface-to-surface looping flow) ─────────
+    for (const stream of streamInstances.values()) {
+        const sourceOrb = orbInstances.get(stream.sourceOrbIndex)
+        const targetOrb = orbInstances.get(stream.targetOrbIndex)
+        if (!sourceOrb || !targetOrb) continue
+
+        const pv = stream.particlesVar
+
+        pv.material.uniforms.uSourceParticlesTexture.value =
+            sourceOrb.computation.getCurrentRenderTarget(sourceOrb.particlesVar).texture
+        pv.material.uniforms.uTargetParticlesTexture.value =
+            targetOrb.computation.getCurrentRenderTarget(targetOrb.particlesVar).texture
+        pv.material.uniforms.uTime.value = elapsedTime
+        pv.material.uniforms.uDeltaTime.value = deltaTime
+
+        stream.computation.compute()
+
+        if (!stream.initialized) {
+            pv.material.uniforms.uInitialize.value = false
+            stream.initialized = true
+        }
+
+        stream.material.uniforms.uParticlesTexture.value =
+            stream.computation.getCurrentRenderTarget(stream.particlesVar).texture
     }
 
     // ── 7. Render ─────────────────────────────────────────────────────────────
