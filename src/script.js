@@ -235,12 +235,17 @@ const getViewportWorldOffset = () => {
 const PARTICLE_COUNT = 256 * 256
 const NESTED_PARTICLE_COUNT = 96 * 96
 const TEXTURE_SIZE   = 256
-const STREAM_TEXTURE_SIZE = 200
+const STREAM_TEXTURE_SIZE = 150
 const STREAM_PARTICLE_COUNT = STREAM_TEXTURE_SIZE * STREAM_TEXTURE_SIZE
 const STREAM_SPEED_MIN = 0.42
 const STREAM_SPEED_MAX = 0.82
-const STREAM_NOISE_AMPLITUDE = 0.20
-const STREAM_NOISE_FREQUENCY = 0.46
+const STREAM_START_RADIUS_RATIO = 0.02
+const STREAM_END_RADIUS_RATIO = 0.0005
+const STREAM_NECK_RADIUS_RATIO = 0.00015
+const STREAM_PINCH_SHARPNESS = 0.26
+const STREAM_RADIAL_SHELL_MIN = 0.45
+const STREAM_LIFETIME_SCALE_MIN = 0.80
+const STREAM_LIFETIME_SCALE_MAX = 1.35
 
 function getRandomSpherePoint() {
     const v = new THREE.Vector3(Math.random()*2-1, Math.random()*2-1, Math.random()*2-1)
@@ -300,16 +305,144 @@ function buildBaseStreamParticlesTexture(computation) {
     return tex
 }
 
-function buildBaseStreamVelocityTexture(computation) {
+const streamSamplingDistributionCache = new Map() // `${orbIndex}:${roleSeed}` -> { cdf, totalWeight }
+
+const clamp01 = (v) => Math.min(Math.max(v, 0), 1)
+const fract = (v) => v - Math.floor(v)
+const lerp = (a, b, t) => a + (b - a) * t
+const smooth01 = (t) => t * t * (3 - 2 * t)
+
+function hash31(x, y, z) {
+    return fract(Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453123)
+}
+
+function valueNoise3d(x, y, z) {
+    const x0 = Math.floor(x), y0 = Math.floor(y), z0 = Math.floor(z)
+    const x1 = x0 + 1,         y1 = y0 + 1,         z1 = z0 + 1
+    const tx = smooth01(x - x0)
+    const ty = smooth01(y - y0)
+    const tz = smooth01(z - z0)
+
+    const n000 = hash31(x0, y0, z0), n100 = hash31(x1, y0, z0)
+    const n010 = hash31(x0, y1, z0), n110 = hash31(x1, y1, z0)
+    const n001 = hash31(x0, y0, z1), n101 = hash31(x1, y0, z1)
+    const n011 = hash31(x0, y1, z1), n111 = hash31(x1, y1, z1)
+
+    const nx00 = lerp(n000, n100, tx), nx10 = lerp(n010, n110, tx)
+    const nx01 = lerp(n001, n101, tx), nx11 = lerp(n011, n111, tx)
+    const nxy0 = lerp(nx00, nx10, ty), nxy1 = lerp(nx01, nx11, ty)
+    return lerp(nxy0, nxy1, tz)
+}
+
+function fbm3d(x, y, z, octaves = 4) {
+    let amplitude = 0.5
+    let frequency = 1.0
+    let total = 0.0
+    let norm = 0.0
+
+    for (let i = 0; i < octaves; i++) {
+        total += amplitude * valueNoise3d(x * frequency, y * frequency, z * frequency)
+        norm += amplitude
+        amplitude *= 0.5
+        frequency *= 2.03
+    }
+    return norm > 0 ? total / norm : 0
+}
+
+function computeSurfaceSamplingWeight(nx, ny, nz, seed) {
+    // Domain-warped FBM + ridge shaping gives clumpy, natural hotspot regions.
+    const warp = fbm3d(
+        nx * 1.9 + seed * 0.13,
+        ny * 1.9 - seed * 0.07,
+        nz * 1.9 + seed * 0.17,
+        3
+    )
+
+    const wx = nx * 4.4 + (warp - 0.5) * 3.0 + seed * 0.11
+    const wy = ny * 4.4 + (warp - 0.5) * 2.6 - seed * 0.09
+    const wz = nz * 4.4 + (warp - 0.5) * 2.2 + seed * 0.05
+
+    const coarse = fbm3d(wx, wy, wz, 4)
+    const detail = fbm3d(
+        nx * 8.3 - seed * 0.21,
+        ny * 8.3 + seed * 0.37,
+        nz * 8.3 - seed * 0.29,
+        2
+    )
+    const ridge = 1.0 - Math.abs(2.0 * coarse - 1.0)
+    const combined = clamp01(0.62 * ridge + 0.38 * detail)
+    const emphasized = Math.pow(combined, 4.0)
+
+    // Keep a tiny floor so all regions remain possible (but very unlikely).
+    return 0.003 + 0.997 * emphasized
+}
+
+function getOrBuildStreamSamplingDistribution(orb, roleSeed) {
+    if (!orb || !orb.baseParticlesTexture || !orb.baseParticlesTexture.image) return null
+
+    const cacheKey = `${orb.orbIndex}:${roleSeed}`
+    if (streamSamplingDistributionCache.has(cacheKey)) {
+        return streamSamplingDistributionCache.get(cacheKey)
+    }
+
+    const baseData = orb.baseParticlesTexture.image.data
+    if (!baseData || baseData.length < PARTICLE_COUNT * 4) return null
+
+    const cdf = new Float32Array(PARTICLE_COUNT)
+    let totalWeight = 0.0
+    const seed = orb.orbIndex * 19.73 + roleSeed * 101.37
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const i4 = i * 4
+        const x = baseData[i4]
+        const y = baseData[i4 + 1]
+        const z = baseData[i4 + 2]
+        const invLen = 1.0 / Math.max(Math.hypot(x, y, z), 1e-6)
+        const nx = x * invLen
+        const ny = y * invLen
+        const nz = z * invLen
+
+        totalWeight += computeSurfaceSamplingWeight(nx, ny, nz, seed)
+        cdf[i] = totalWeight
+    }
+
+    const distribution = { cdf, totalWeight }
+    streamSamplingDistributionCache.set(cacheKey, distribution)
+    return distribution
+}
+
+function sampleParticleIndex(distribution) {
+    if (!distribution || distribution.totalWeight <= 0) {
+        return Math.floor(Math.random() * PARTICLE_COUNT)
+    }
+
+    const r = Math.random() * distribution.totalWeight
+    const cdf = distribution.cdf
+    let lo = 0
+    let hi = cdf.length - 1
+
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (r <= cdf[mid]) hi = mid
+        else lo = mid + 1
+    }
+    return lo
+}
+
+function buildBaseStreamVelocityTexture(computation, sourceOrb, targetOrb) {
     const tex = computation.createTexture()
     const data = tex.image.data
+    const sourceDistribution = getOrBuildStreamSamplingDistribution(sourceOrb, 0)
+    const targetDistribution = getOrBuildStreamSamplingDistribution(targetOrb, 1)
 
     for (let i = 0; i < STREAM_PARTICLE_COUNT; i++) {
         const i4 = i * 4
-        const sx = Math.floor(Math.random() * TEXTURE_SIZE)
-        const sy = Math.floor(Math.random() * TEXTURE_SIZE)
-        const tx = Math.floor(Math.random() * TEXTURE_SIZE)
-        const ty = Math.floor(Math.random() * TEXTURE_SIZE)
+        const sourceIndex = sampleParticleIndex(sourceDistribution)
+        const targetIndex = sampleParticleIndex(targetDistribution)
+        const sx = sourceIndex % TEXTURE_SIZE
+        const sy = Math.floor(sourceIndex / TEXTURE_SIZE)
+        const tx = targetIndex % TEXTURE_SIZE
+        const ty = Math.floor(targetIndex / TEXTURE_SIZE)
 
         // Store sampled particle UV pairs:
         //   rg = source(big orb) sample
@@ -417,7 +550,19 @@ function createOrb(orbIndex) {
 
     console.info(`[Orbs] created orb ${orbIndex} (${color})`)
 
-    return { orbIndex, computation, particlesVar, velocityVar, geometry, material, points, initialized: false, orbSpinSpeed, orbCurlFreq }
+    return {
+        orbIndex,
+        computation,
+        particlesVar,
+        velocityVar,
+        geometry,
+        material,
+        points,
+        baseParticlesTexture: basePosTex,
+        initialized: false,
+        orbSpinSpeed,
+        orbCurlFreq,
+    }
 }
 
 function getCounterpartIndex(orbIndex, activeIndices) {
@@ -441,8 +586,8 @@ function createNestedOrb(parentOrbIndex, activeIndices) {
         fragmentShader: particlesFragmentShader,
         uniforms: {
             uColor:            new THREE.Uniform(new THREE.Color(indexPalette[nestedColorIndex % indexPalette.length])),
-            uOpacity:          new THREE.Uniform(0.75),
-            uBrightness:       new THREE.Uniform(0.75),
+            uOpacity:          new THREE.Uniform(0.95),
+            uBrightness:       new THREE.Uniform(0.85),
             uParticlesTexture: new THREE.Uniform(),
             uNestedCenter:     new THREE.Uniform(parentOffsetRef),
             uNestedScale:      new THREE.Uniform(NESTED_ORB_SCALE),
@@ -469,10 +614,12 @@ function createNestedOrb(parentOrbIndex, activeIndices) {
 
 function createStream(sourceOrbIndex, targetOrbIndex) {
     const targetOffsetRef = getOrCreateOrbWorldOffsetRef(targetOrbIndex)
+    const sourceOrb = orbInstances.get(sourceOrbIndex)
+    const targetOrb = orbInstances.get(targetOrbIndex)
 
     const computation = new GPUComputationRenderer(STREAM_TEXTURE_SIZE, STREAM_TEXTURE_SIZE, renderer)
     const basePosTex = buildBaseStreamParticlesTexture(computation)
-    const baseVelTex = buildBaseStreamVelocityTexture(computation)
+    const baseVelTex = buildBaseStreamVelocityTexture(computation, sourceOrb, targetOrb)
 
     const particlesVar = computation.addVariable('uStreamParticles', gpgpuStreamParticlesShader, basePosTex)
     const velocityVar = computation.addVariable('uStreamVelocity', gpgpuStreamVelocityShader, baseVelTex)
@@ -480,7 +627,6 @@ function createStream(sourceOrbIndex, targetOrbIndex) {
     computation.setVariableDependencies(particlesVar, [particlesVar, velocityVar])
     computation.setVariableDependencies(velocityVar, [particlesVar, velocityVar])
 
-    particlesVar.material.uniforms.uTime = new THREE.Uniform(0)
     particlesVar.material.uniforms.uDeltaTime = new THREE.Uniform(0)
     particlesVar.material.uniforms.uSourceParticlesTexture = new THREE.Uniform(basePosTex)
     particlesVar.material.uniforms.uTargetParticlesTexture = new THREE.Uniform(basePosTex)
@@ -488,8 +634,13 @@ function createStream(sourceOrbIndex, targetOrbIndex) {
     particlesVar.material.uniforms.uTargetNestedScale = new THREE.Uniform(NESTED_ORB_SCALE)
     particlesVar.material.uniforms.uSpeedMin = new THREE.Uniform(STREAM_SPEED_MIN)
     particlesVar.material.uniforms.uSpeedMax = new THREE.Uniform(STREAM_SPEED_MAX)
-    particlesVar.material.uniforms.uNoiseAmplitude = new THREE.Uniform(STREAM_NOISE_AMPLITUDE)
-    particlesVar.material.uniforms.uNoiseFrequency = new THREE.Uniform(STREAM_NOISE_FREQUENCY)
+    particlesVar.material.uniforms.uStartRadiusRatio = new THREE.Uniform(STREAM_START_RADIUS_RATIO)
+    particlesVar.material.uniforms.uEndRadiusRatio = new THREE.Uniform(STREAM_END_RADIUS_RATIO)
+    particlesVar.material.uniforms.uNeckRadiusRatio = new THREE.Uniform(STREAM_NECK_RADIUS_RATIO)
+    particlesVar.material.uniforms.uPinchSharpness = new THREE.Uniform(STREAM_PINCH_SHARPNESS)
+    particlesVar.material.uniforms.uRadialShellMin = new THREE.Uniform(STREAM_RADIAL_SHELL_MIN)
+    particlesVar.material.uniforms.uLifetimeScaleMin = new THREE.Uniform(STREAM_LIFETIME_SCALE_MIN)
+    particlesVar.material.uniforms.uLifetimeScaleMax = new THREE.Uniform(STREAM_LIFETIME_SCALE_MAX)
     particlesVar.material.uniforms.uInitialize = new THREE.Uniform(true)
 
     computation.init()
@@ -572,6 +723,11 @@ function destroyOrb(idx) {
     orbInstances.delete(idx)
     destroyStreamsForOrb(idx)
     allOrbWorldOffsets.delete(idx)
+    for (const key of streamSamplingDistributionCache.keys()) {
+        if (key.startsWith(`${idx}:`)) {
+            streamSamplingDistributionCache.delete(key)
+        }
+    }
     console.info(`[Orbs] destroyed orb ${idx}`)
 }
 
@@ -819,7 +975,6 @@ const tick = () => {
             sourceOrb.computation.getCurrentRenderTarget(sourceOrb.particlesVar).texture
         pv.material.uniforms.uTargetParticlesTexture.value =
             targetOrb.computation.getCurrentRenderTarget(targetOrb.particlesVar).texture
-        pv.material.uniforms.uTime.value = elapsedTime
         pv.material.uniforms.uDeltaTime.value = deltaTime
 
         stream.computation.compute()

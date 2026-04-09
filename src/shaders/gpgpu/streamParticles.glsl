@@ -1,4 +1,3 @@
-uniform float uTime;
 uniform float uDeltaTime;
 uniform sampler2D uSourceParticlesTexture;
 uniform sampler2D uTargetParticlesTexture;
@@ -6,17 +5,16 @@ uniform vec2 uTargetNestedCenter;
 uniform float uTargetNestedScale;
 uniform float uSpeedMin;
 uniform float uSpeedMax;
-uniform float uNoiseAmplitude;
-uniform float uNoiseFrequency;
+uniform float uStartRadiusRatio;
+uniform float uEndRadiusRatio;
+uniform float uNeckRadiusRatio;
+uniform float uPinchSharpness;
+uniform float uRadialShellMin;
+uniform float uLifetimeScaleMin;
+uniform float uLifetimeScaleMax;
 uniform bool uInitialize;
 
-void buildOrthonormalBasis(vec3 dir, out vec3 tangentA, out vec3 tangentB) {
-    vec3 helper = abs(dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-    tangentA = normalize(cross(dir, helper));
-    tangentB = normalize(cross(tangentA, dir));
-}
-
-#include "lygia/generative/snoise.glsl"
+const float TAU = 6.28318530718;
 
 float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -24,7 +22,20 @@ float hash12(vec2 p) {
     return fract((p3.x + p3.y) * p3.z);
 }
 
-const float PI = 3.14159265359;
+void buildOrthonormalBasis(vec3 dir, out vec3 tangentA, out vec3 tangentB) {
+    vec3 helper = abs(dir.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    tangentA = normalize(cross(dir, helper));
+    tangentB = normalize(cross(tangentA, dir));
+}
+
+float hourglassRadius(float t, float startRadius, float endRadius, float neckRadius) {
+    // Quadratic profile: high at t=0/1, low at t=0.5
+    float edgeProfile = clamp(4.0 * (t - 0.5) * (t - 0.5), 0.0, 1.0);
+    // Power < 1 widens the ends faster so the pinch reads more clearly.
+    edgeProfile = pow(edgeProfile, max(0.05, uPinchSharpness));
+    float edgeRadius = mix(startRadius, endRadius, t);
+    return mix(neckRadius, edgeRadius, edgeProfile);
+}
 
 void main() {
     vec2 uv = gl_FragCoord.xy / resolution.xy;
@@ -34,6 +45,9 @@ void main() {
     vec2 sourceSampleUv = seedData.xy;
     vec2 targetSampleUv = seedData.zw;
     float speedSeed = hash12(sourceSampleUv * 37.0 + targetSampleUv * 17.0);
+    float phaseSeed = hash12(sourceSampleUv * 59.0 + targetSampleUv * 13.0 + 0.17);
+    float radialSeed = hash12(sourceSampleUv * 23.0 + targetSampleUv * 41.0 + 0.51);
+    float lifetimeSeed = hash12(sourceSampleUv * 11.0 + targetSampleUv * 73.0 + 0.93);
 
     vec4 currentParticle = texture2D(uStreamParticles, uv);
     float progress = currentParticle.w;
@@ -56,6 +70,7 @@ void main() {
     buildOrthonormalBasis(pathDir, tangentA, tangentB);
 
     float speed = mix(uSpeedMin, uSpeedMax, speedSeed);
+    float lifetimeScale = mix(uLifetimeScaleMin, uLifetimeScaleMax, lifetimeSeed);
 
     float travelProgress;
     bool reachedDestination = false;
@@ -63,21 +78,28 @@ void main() {
     if (uInitialize) {
         travelProgress = hash12(uv + sourceSampleUv * 11.0 + targetSampleUv * 7.0);
     } else {
-        float nextProgress = progress + (speed * uDeltaTime) / pathLength;
+        float nextProgress = progress + ((speed * uDeltaTime) / pathLength) / lifetimeScale;
         reachedDestination = nextProgress >= 1.0;
         travelProgress = min(nextProgress, 1.0);
     }
 
-    // Natural path wobble driven by procedural noise.
-    // Envelope keeps noise at zero on both endpoints so each particle starts
-    // and ends exactly on sampled surface points.
-    float envelope = sin(travelProgress * PI);
-    float t = uTime * uNoiseFrequency;
-    float n1 = snoise(vec3(sourceSampleUv * 21.7 + travelProgress * 1.8, t + speedSeed * 3.1));
-    float n2 = snoise(vec3(targetSampleUv * 19.3 + travelProgress * 2.3, t + speedSeed * 5.7));
-    vec3 noiseOffset = (tangentA * n1 + tangentB * n2) * (uNoiseAmplitude * envelope);
+    float startRadius = max(1e-4, pathLength * uStartRadiusRatio);
+    float endRadius = max(1e-4, pathLength * uEndRadiusRatio);
+    float neckRadius = max(1e-4, pathLength * uNeckRadiusRatio);
+    float radius = hourglassRadius(travelProgress, startRadius, endRadius, neckRadius);
+    // Anchor to both orb surfaces so the bridge starts on the big orb and
+    // collapses into the target small orb instead of staying wide at the end.
+    float startAnchor = smoothstep(0.0, 0.06, travelProgress);
+    float endAnchor = 1.0 - smoothstep(0.68, 1.0, travelProgress);
+    radius *= startAnchor * endAnchor;
 
-    vec3 nextPos = mix(sourcePos, targetPos, travelProgress) + noiseOffset;
+    float shellBias = pow(radialSeed, 0.22);
+    float radialWeight = mix(uRadialShellMin, 1.0, shellBias);
+    float swirlAngle = phaseSeed * TAU;
+    vec3 swirlDir = cos(swirlAngle) * tangentA + sin(swirlAngle) * tangentB;
+
+    vec3 centerLinePos = mix(sourcePos, targetPos, travelProgress);
+    vec3 nextPos = centerLinePos + swirlDir * (radius * radialWeight);
     float storedProgress = reachedDestination ? 0.0 : travelProgress;
     gl_FragColor = vec4(nextPos, storedProgress);
 }
