@@ -225,9 +225,9 @@ const getViewportWorldOffset = () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GPGPU / particle helpers
 // ─────────────────────────────────────────────────────────────────────────────
-const PARTICLE_COUNT = 512 * 512
-const NESTED_PARTICLE_COUNT = 128 * 128
-const TEXTURE_SIZE   = 512
+const PARTICLE_COUNT = 256 * 256
+const NESTED_PARTICLE_COUNT = 96 * 96
+const TEXTURE_SIZE   = 256
 
 function getRandomSpherePoint() {
     const v = new THREE.Vector3(Math.random()*2-1, Math.random()*2-1, Math.random()*2-1)
@@ -341,6 +341,8 @@ function createOrb(orbIndex) {
         fragmentShader: particlesFragmentShader,
         uniforms: {
             uColor:            new THREE.Uniform(new THREE.Color(color)),
+            uOpacity:          new THREE.Uniform(1.0),
+            uBrightness:       new THREE.Uniform(1.0),
             uParticlesTexture: new THREE.Uniform(),
             uNestedCenter:     new THREE.Uniform(cameraCenterOffsetRef),
             uNestedScale:      new THREE.Uniform(1.0),
@@ -388,6 +390,8 @@ function createNestedOrb(parentOrbIndex, activeIndices) {
         fragmentShader: particlesFragmentShader,
         uniforms: {
             uColor:            new THREE.Uniform(new THREE.Color(indexPalette[nestedColorIndex % indexPalette.length])),
+            uOpacity:          new THREE.Uniform(0.75),
+            uBrightness:       new THREE.Uniform(0.75),
             uParticlesTexture: new THREE.Uniform(),
             uNestedCenter:     new THREE.Uniform(parentOffsetRef),
             uNestedScale:      new THREE.Uniform(NESTED_ORB_SCALE),
