@@ -237,15 +237,15 @@ const NESTED_PARTICLE_COUNT = 128 * 128
 const TEXTURE_SIZE   = 256
 const STREAM_TEXTURE_SIZE = 256
 const STREAM_PARTICLE_COUNT = STREAM_TEXTURE_SIZE * STREAM_TEXTURE_SIZE
-const STREAM_SPEED_MIN = 0.42
+const STREAM_SPEED_MIN = 0.22
 const STREAM_SPEED_MAX = 0.82
 const STREAM_START_RADIUS_RATIO = 0.055   // wide entry  (~5.5% of path length)
 const STREAM_END_RADIUS_RATIO   = 0.028   // wide exit   (~2.8% of path length)
 const STREAM_NECK_RADIUS_RATIO  = 0.006   // tight neck  (~0.6% of path length)
 const STREAM_PINCH_SHARPNESS    = 0.65    // < 1 → softer quadratic so hourglass reads clearly
 const STREAM_RADIAL_SHELL_MIN   = 0.15    // allow particles near center for depth
-const STREAM_LIFETIME_SCALE_MIN = 0.80
-const STREAM_LIFETIME_SCALE_MAX = 1.35
+const STREAM_LIFETIME_SCALE_MIN = 0.90
+const STREAM_LIFETIME_SCALE_MAX = 2.0
 
 function getRandomSpherePoint() {
     const v = new THREE.Vector3(Math.random()*2-1, Math.random()*2-1, Math.random()*2-1)
@@ -349,32 +349,46 @@ function fbm3d(x, y, z, octaves = 4) {
     return norm > 0 ? total / norm : 0
 }
 
-function computeSurfaceSamplingWeight(nx, ny, nz, seed) {
-    // Domain-warped FBM + ridge shaping gives clumpy, natural hotspot regions.
-    const warp = fbm3d(
-        nx * 1.9 + seed * 0.13,
-        ny * 1.9 - seed * 0.07,
-        nz * 1.9 + seed * 0.17,
-        3
-    )
+// Number of emission hotspots per (orb, role) and how tight each one is.
+// STREAM_HOTSPOT_SIGMA controls the angular width — smaller = tighter patch.
+// With sigma = 0.22, each hotspot covers roughly a 25°-radius cap on the sphere.
+const STREAM_HOTSPOT_COUNT = 3
+const STREAM_HOTSPOT_SIGMA = 0.22
 
-    const wx = nx * 4.4 + (warp - 0.5) * 3.0 + seed * 0.11
-    const wy = ny * 4.4 + (warp - 0.5) * 2.6 - seed * 0.09
-    const wz = nz * 4.4 + (warp - 0.5) * 2.2 + seed * 0.05
+// Deterministic unit-vector hotspots per (orb, role).  Uses hashed spherical
+// coords so the same orb always emits from the same patches across tabs.
+function generateOrbHotspots(orbIndex, roleSeed, count) {
+    const hotspots = []
+    for (let i = 0; i < count; i++) {
+        const s1 = fract(Math.sin(orbIndex * 31.7 + roleSeed * 53.3 + i * 17.1) * 43758.5453)
+        const s2 = fract(Math.sin(orbIndex * 11.3 + roleSeed * 71.9 + i * 29.7) * 12345.6789)
+        const theta = s1 * Math.PI * 2
+        const cosPhi = 2 * s2 - 1
+        const sinPhi = Math.sqrt(Math.max(0, 1 - cosPhi * cosPhi))
+        hotspots.push({
+            x: sinPhi * Math.cos(theta),
+            y: sinPhi * Math.sin(theta),
+            z: cosPhi,
+        })
+    }
+    return hotspots
+}
 
-    const coarse = fbm3d(wx, wy, wz, 4)
-    const detail = fbm3d(
-        nx * 8.3 - seed * 0.21,
-        ny * 8.3 + seed * 0.37,
-        nz * 8.3 - seed * 0.29,
-        2
-    )
-    const ridge = 1.0 - Math.abs(2.0 * coarse - 1.0)
-    const combined = clamp01(0.62 * ridge + 0.38 * detail)
-    const emphasized = Math.pow(combined, 4.0)
-
-    // Keep a tiny floor so all regions remain possible (but very unlikely).
-    return 0.003 + 0.997 * emphasized
+function computeSurfaceSamplingWeight(nx, ny, nz, hotspots) {
+    // Sum of Gaussians centered on each hotspot direction.  Distance is the
+    // chord-squared between (nx,ny,nz) and the hotspot — it's 0 on top of a
+    // hotspot and grows smoothly as you move away.  Outside the Gaussian cap
+    // the weight drops essentially to zero, giving clean empty regions.
+    const invTwoSigmaSq = 1 / (2 * STREAM_HOTSPOT_SIGMA * STREAM_HOTSPOT_SIGMA)
+    let weight = 0
+    for (let i = 0; i < hotspots.length; i++) {
+        const h = hotspots[i]
+        const d = 1 - (nx * h.x + ny * h.y + nz * h.z)   // 0 at center, 2 opposite
+        weight += Math.exp(-d * d * invTwoSigmaSq)
+    }
+    // Tiny floor so the sampler never NaNs if a sphere has no points near a
+    // hotspot; in practice 99%+ of the weight lives inside the caps.
+    return 0.0005 + weight
 }
 
 function getOrBuildStreamSamplingDistribution(orb, roleSeed) {
@@ -388,9 +402,9 @@ function getOrBuildStreamSamplingDistribution(orb, roleSeed) {
     const baseData = orb.baseParticlesTexture.image.data
     if (!baseData || baseData.length < PARTICLE_COUNT * 4) return null
 
+    const hotspots = generateOrbHotspots(orb.orbIndex, roleSeed, STREAM_HOTSPOT_COUNT)
     const cdf = new Float32Array(PARTICLE_COUNT)
     let totalWeight = 0.0
-    const seed = orb.orbIndex * 19.73 + roleSeed * 101.37
 
     for (let i = 0; i < PARTICLE_COUNT; i++) {
         const i4 = i * 4
@@ -402,7 +416,7 @@ function getOrBuildStreamSamplingDistribution(orb, roleSeed) {
         const ny = y * invLen
         const nz = z * invLen
 
-        totalWeight += computeSurfaceSamplingWeight(nx, ny, nz, seed)
+        totalWeight += computeSurfaceSamplingWeight(nx, ny, nz, hotspots)
         cdf[i] = totalWeight
     }
 

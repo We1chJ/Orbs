@@ -95,37 +95,34 @@ void main() {
     radius *= startAnchor * endAnchor;
 
     // ── Strand clustering ────────────────────────────────────────────────────
-    // Bucket particles into a small number of discrete helical strands so the
-    // stream reads as coherent rivulets of water instead of a diffuse tube.
-    const float STRAND_COUNT = 6.0;
+    // Four thin ribbons, all sharing the same helix rate so they stay parallel
+    // (never crossing in screen space) — this is what reads as "strands".
+    const float STRAND_COUNT = 4.0;
+    const float HELIX_TURNS  = 2.0;
     float strandIdx   = floor(phaseSeed * STRAND_COUNT);
     float strandLocal = fract(phaseSeed * STRAND_COUNT);
 
-    // Per-strand randomization — each rope gets its own angle offset, twist
-    // rate, and radial shell.  Derived from strandIdx so every particle in
-    // the same strand agrees on the parameters.
-    float strandHash  = hash12(vec2(strandIdx, strandIdx * 2.17 + 3.14));
+    float strandHash  = hash12(vec2(strandIdx + 1.0, strandIdx * 2.17 + 3.14));
     float strandHash2 = hash12(vec2(strandIdx * 0.91 + 7.0, strandIdx + 1.3));
 
-    // Angular layout: evenly spaced base angles + per-strand jitter so strands
-    // aren't perfectly symmetric; strandLocal is a tight thread thickness.
-    float strandAngleBase = strandIdx * (TAU / STRAND_COUNT) + strandHash * 0.85;
-    float strandThickness = (strandLocal - 0.5) * 0.22;
-    float helixTurns      = mix(1.8, 3.0, strandHash);
-    float swirlAngle = strandAngleBase + strandThickness
-                     + travelProgress * TAU * helixTurns;
+    // Angular base evenly spaced around the tube. Thread thickness is tiny
+    // (~3° half-width) so each strand is a sharp ribbon, not a fat arc.
+    float strandAngleBase = strandIdx * (TAU / STRAND_COUNT);
+    float strandThickness = (strandLocal - 0.5) * 0.06;
+    float swirlAngle      = strandAngleBase + strandThickness
+                          + travelProgress * TAU * HELIX_TURNS;
     vec3 swirlDir = cos(swirlAngle) * tangentA + sin(swirlAngle) * tangentB;
 
-    // Each strand rides at its own radial shell — some hug the centerline,
-    // some ride the outer wall, leaving visible gaps between the ropes.
-    float strandRadialFrac = mix(0.32, 1.05, strandHash2);
-    float radialJitter     = (radialSeed - 0.5) * 0.08;
-    float radialWeight     = clamp(strandRadialFrac + radialJitter, 0.05, 1.1);
+    // Each strand locked to one of four distinct radial shells so the gaps
+    // between ropes are visible. Jitter is minimal so ribbons stay crisp.
+    float strandRadialFrac = mix(0.55, 1.15, strandHash2);
+    float radialJitter     = (radialSeed - 0.5) * 0.03;
+    float radialWeight     = clamp(strandRadialFrac + radialJitter, 0.1, 1.2);
 
-    // Longitudinal flow pulses: warp progress slightly along a sine so
-    // particles bunch into packets and thin out between them — the "flowing
-    // water" beat.  Different strands pulse out of phase for organic motion.
-    float progressWarp = 0.04 * sin(travelProgress * TAU * 2.5 + strandHash * 6.2831);
+    // Strong longitudinal pulsing: warp progress along a sine so particles
+    // visibly bunch into packets with empty gaps between them. Each strand
+    // pulses out of phase so the beats stagger like braided water.
+    float progressWarp = 0.11 * sin(travelProgress * TAU * 2.0 + strandHash * 6.2831);
     float warpedT      = clamp(travelProgress + progressWarp, 0.0, 1.0);
 
     vec3 centerLinePos = mix(sourcePos, targetPos, warpedT);
