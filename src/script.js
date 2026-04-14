@@ -72,7 +72,7 @@ const NESTED_ORB_SCALE = 0.40
 // Init
 // ─────────────────────────────────────────────────────────────────────────────
 const gui = new GUI({ width: 340 })
-gui.hide()
+// gui.hide()
 const debugObject = {}
 const windowIndex = getOrCreateWindowIndex()
 
@@ -97,7 +97,7 @@ debugObject.speed             = 0.5
 debugObject.curlFreq          = 0.25
 debugObject.spinSpeed         = 0.35
 debugObject.attraction        = 10000.0
-debugObject.damping           = 0.25
+debugObject.damping           = 0.132
 debugObject.accelNoiseScale   = 60.0
 debugObject.windowResponseMin = 0.02
 debugObject.windowResponseMax = 0.06
@@ -233,17 +233,17 @@ const getViewportWorldOffset = () => {
 // GPGPU / particle helpers
 // ─────────────────────────────────────────────────────────────────────────────
 const PARTICLE_COUNT = 256 * 256
-const NESTED_PARTICLE_COUNT = 96 * 96
+const NESTED_PARTICLE_COUNT = 128 * 128
 const TEXTURE_SIZE   = 256
-const STREAM_TEXTURE_SIZE = 150
+const STREAM_TEXTURE_SIZE = 256
 const STREAM_PARTICLE_COUNT = STREAM_TEXTURE_SIZE * STREAM_TEXTURE_SIZE
 const STREAM_SPEED_MIN = 0.42
 const STREAM_SPEED_MAX = 0.82
-const STREAM_START_RADIUS_RATIO = 0.02
-const STREAM_END_RADIUS_RATIO = 0.0005
-const STREAM_NECK_RADIUS_RATIO = 0.00015
-const STREAM_PINCH_SHARPNESS = 0.26
-const STREAM_RADIAL_SHELL_MIN = 0.45
+const STREAM_START_RADIUS_RATIO = 0.055   // wide entry  (~5.5% of path length)
+const STREAM_END_RADIUS_RATIO   = 0.028   // wide exit   (~2.8% of path length)
+const STREAM_NECK_RADIUS_RATIO  = 0.006   // tight neck  (~0.6% of path length)
+const STREAM_PINCH_SHARPNESS    = 0.65    // < 1 → softer quadratic so hourglass reads clearly
+const STREAM_RADIAL_SHELL_MIN   = 0.15    // allow particles near center for depth
 const STREAM_LIFETIME_SCALE_MIN = 0.80
 const STREAM_LIFETIME_SCALE_MAX = 1.35
 
@@ -654,8 +654,8 @@ function createStream(sourceOrbIndex, targetOrbIndex) {
         fragmentShader: streamParticlesFragmentShader,
         uniforms: {
             uColor: new THREE.Uniform(new THREE.Color(indexPalette[sourceOrbIndex % indexPalette.length])),
-            uOpacity: new THREE.Uniform(0.72),
-            uPointSize: new THREE.Uniform(12.0),
+            uOpacity: new THREE.Uniform(0.55),
+            uPointSize: new THREE.Uniform(7.0),
             uParticlesTexture: new THREE.Uniform(),
             uResolution: new THREE.Uniform(new THREE.Vector2(
                 sizes.width * sizes.pixelRatio,
