@@ -31,10 +31,19 @@ https://we1chj.github.io/Orbs/#debug
 ```
 
 ## Stack
-This project is built with:
 
-- Three.js for 3D rendering and WebGL scene management.
-- JavaScript for application logic and interactivity.
-- HTML for the page structure.
-- CSS for styling and visual presentation.
-- Vite for local development, bundling, and production builds.
+<div align="center">
+
+![Three.js](https://img.shields.io/badge/Three.js-000000?style=for-the-badge&logo=three.js&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
+![HTML5](https://img.shields.io/badge/HTML5-E34C26?style=for-the-badge&logo=html5&logoColor=white)
+![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)
+
+</div>
+
+- **Three.js** for 3D rendering and WebGL scene management
+- **JavaScript** for application logic and interactivity
+- **HTML** for the page structure
+- **CSS** for styling and visual presentation
+- **Vite** for local development, bundling, and production builds
