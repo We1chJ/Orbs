@@ -1,46 +1,42 @@
-uniform float uTime;
 uniform float uDeltaTime;
+uniform float uTime;
+uniform float uSpeed;
+uniform float uCurlFreq;
 uniform sampler2D uBase;
-uniform float uFlowFieldInfluence;
-uniform float uFlowFieldStrength;
-uniform float uFlowFieldFrequency;
+uniform bool uInitialize;
 
-#include ../includes/simplexNoise4d.glsl
+#include "lygia/generative/curl.glsl"
+#include "lygia/generative/snoise.glsl"
 
-void main(){
-
-    float time = uTime * 0.2;
+void main() {
     vec2 uv = gl_FragCoord.xy / resolution.xy;
-    vec4 particle = texture(uParticles, uv);
-    vec4 base = texture(uBase, uv);
 
-    // Dead
-    if(particle.a >= 1.0){
-        particle.a = mod(particle.a, 1.0);
-        particle.xyz = base.xyz;
-    }
-    // Alive
-    else{
+    vec3 basePos = texture2D(uBase, uv).rgb;
+    vec3 currentPos = texture2D(uParticles, uv).rgb;
+    vec4 velocityData = texture2D(uVelocity, uv);
+    vec3 velocity = velocityData.rgb;
+    float randomDelaySeed = velocityData.a;
 
-        // Strength
-        float strength = simplexNoise4d(vec4(base.xyz * 0.2, time + 1.0));
-        float influence = (uFlowFieldInfluence - 0.5) * -2.0;
-        strength = smoothstep(influence, 1.0, strength);
+    float t = uTime * uSpeed * 0.015;
 
+    vec3 pos = basePos;
+    vec3 curlPos = basePos;
 
-        vec3 flowField = vec3(
-            simplexNoise4d(vec4(particle.xyz * uFlowFieldFrequency + 0.0, time)),
-            simplexNoise4d(vec4(particle.xyz * uFlowFieldFrequency + 1.0, time)),
-            simplexNoise4d(vec4(particle.xyz * uFlowFieldFrequency + 2.0, time))
-        );
-        flowField = normalize(flowField);
-        particle.xyz += flowField * uDeltaTime * strength * uFlowFieldStrength;
+    pos = curl(pos * uCurlFreq + t);
+    curlPos = curl(curlPos * uCurlFreq + t);
+    curlPos += curl(curlPos * uCurlFreq * 2.0) * 0.5;
+    curlPos += curl(curlPos * uCurlFreq * 4.0) * 0.25;
+    curlPos += curl(curlPos * uCurlFreq * 8.0) * 0.125;
+    curlPos += curl(pos * uCurlFreq * 16.0) * 0.0625;
 
-        particle.a += uDeltaTime * 0.1;
+    vec3 idealPos = mix(pos, curlPos, snoise(pos + t));
+    
+    if(uInitialize) {
+        gl_FragColor = vec4(idealPos, 1.0);
+        return;
     }
 
-
-
-    gl_FragColor = particle;
-
+    float velocityVariation = mix(0.6, 5.0, randomDelaySeed);
+    vec3 nextPos = currentPos + velocity * velocityVariation * uDeltaTime;
+    gl_FragColor = vec4(nextPos, 1.0);
 }
