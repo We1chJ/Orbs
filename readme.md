@@ -1,4 +1,6 @@
-# Three.js Journey
+# Quantum Orbs 🪩
+
+An interactive WebGL experience featuring swirling quantum-inspired particles and orb-like motion. Built with Three.js, FBO, GPGPU, and custom GLSL shaders, this project focuses on real-time visuals, smooth animation, and a lightweight Vite workflow for local development and deployment.
 
 ## Setup
 Download [Node.js](https://nodejs.org/en/download/).
