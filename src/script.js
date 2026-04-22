@@ -72,7 +72,18 @@ const NESTED_ORB_SCALE = 0.40
 // Init
 // ─────────────────────────────────────────────────────────────────────────────
 const gui = new GUI({ width: 340 })
-// gui.hide()
+const isDebugHashEnabled = () => {
+    const hash = (window.location.hash || '').toLowerCase()
+    return /^#debug($|[?&=,:/])/.test(hash)
+}
+
+const syncGuiVisibilityToUrl = () => {
+    if (isDebugHashEnabled()) gui.show()
+    else gui.hide()
+}
+
+syncGuiVisibilityToUrl()
+window.addEventListener('hashchange', syncGuiVisibilityToUrl)
 const debugObject = {}
 const windowIndex = getOrCreateWindowIndex()
 
